@@ -11,8 +11,8 @@
 	<groupId>com.systembpm</groupId>
 	<artifactId>system-backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name/>
-	<description/>
+	<name>system-backend</name>
+	<description>Sistema BPM Colaborativo - Backend</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -49,6 +49,27 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+
+		<!-- ========================================== -->
+		<!-- DEPENDENCIAS DE JWT (Java JSON Web Token) -->
+		<!-- ========================================== -->
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>0.12.5</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>0.12.5</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>0.12.5</version>
+			<scope>runtime</scope>
 		</dependency>
 
 		<dependency>
@@ -143,3 +164,4 @@
 	</build>
 
 </project>
+

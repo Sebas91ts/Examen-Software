@@ -1,3 +1,84 @@
+# ==========================================
+# CONFIGURACIÓN PRINCIPAL - system-backend
+# ==========================================
+
 spring:
   application:
     name: system-backend
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # ==========================================
+  # CONFIGURACIÓN DE MONGODB
+  # ==========================================
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017}
+      database: ${MONGODB_DATABASE:systembpm_db}
+
+# ==========================================
+# CONFIGURACIÓN DE LOGGING
+# ==========================================
+logging:
+  level:
+    root: INFO
+    com.systembpm.system: DEBUG
+    org.springframework.data.mongodb.core.MongoTemplate: DEBUG
+
+# ==========================================
+# CONFIGURACIÓN DEL SERVIDOR
+# ==========================================
+server:
+  port: ${SERVER_PORT:8080}
+
+# ==========================================
+# CONFIGURACIÓN DE JWT (Personalizada)
+# ==========================================
+jwt:
+  secret: ${JWT_SECRET:mi_clave_secreta_muy_larga_y_segura_para_jwt_2024}
+  expiration: ${JWT_EXPIRATION:86400000}
+  prefix: ${JWT_PREFIX:Bearer }
+
+---
+# ==========================================
+# PERFIL DE DESARROLLO (dev)
+# ==========================================
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017
+      database: systembpm_db_dev
+
+logging:
+  level:
+    root: INFO
+    com.systembpm.system: DEBUG
+    org.springframework.security: DEBUG
+
+---
+# ==========================================
+# PERFIL DE PRODUCCIÓN (prod)
+# ==========================================
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  data:
+    mongodb:
+      uri: ${MONGODB_URI}
+      database: ${MONGODB_DATABASE}
+
+logging:
+  level:
+    root: WARN
+    com.systembpm.system: INFO
+    org.springframework.security: WARN
+
+server:
+  port: ${SERVER_PORT:8080}
