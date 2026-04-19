@@ -2,6 +2,7 @@ package com.systembpm.system.modules.user.application.service;
 
 import com.systembpm.system.modules.user.application.dto.UsuarioCreateDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
+import com.systembpm.system.modules.user.application.dto.UsuarioUpdateDto;
 import com.systembpm.system.modules.user.domain.Usuario;
 
 import java.util.List;
@@ -43,7 +44,7 @@ public interface IUsuarioService {
      * @param dto Los nuevos datos del usuario
      * @return El usuario actualizado
      */
-    Optional<UsuarioResponseDto> actualizarUsuario(String id, UsuarioCreateDto dto);
+    Optional<UsuarioResponseDto> actualizarUsuario(String id, UsuarioUpdateDto dto);
 
     /**
      * Elimina un usuario del sistema (soft delete o hard delete).

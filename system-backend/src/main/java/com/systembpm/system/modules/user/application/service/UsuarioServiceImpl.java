@@ -2,6 +2,7 @@ package com.systembpm.system.modules.user.application.service;
 
 import com.systembpm.system.modules.user.application.dto.UsuarioCreateDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
+import com.systembpm.system.modules.user.application.dto.UsuarioUpdateDto;
 import com.systembpm.system.modules.user.application.mapper.UsuarioMapper;
 import com.systembpm.system.modules.user.domain.Usuario;
 import com.systembpm.system.modules.user.infrastructure.repository.UsuarioRepository;
@@ -14,8 +15,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Implementación del servicio de usuarios.
- * Contiene la lógica de negocio para la gestión de usuarios.
+ * Implementacion del servicio de usuarios.
+ * Contiene la logica de negocio para la gestion de usuarios.
  */
 @Slf4j
 @Service
@@ -30,19 +31,14 @@ public class UsuarioServiceImpl implements IUsuarioService {
     public UsuarioResponseDto registrarUsuario(UsuarioCreateDto dto) {
         log.info("Registrando nuevo usuario con email: {}", dto.getEmail());
 
-        // Validar que el email no exista
         if (usuarioRepository.existsByEmail(dto.getEmail())) {
             log.warn("Intento de registro con email duplicado: {}", dto.getEmail());
-            throw new IllegalArgumentException("El email ya está registrado en el sistema");
+            throw new IllegalArgumentException("El email ya esta registrado en el sistema");
         }
 
-        // Convertir DTO a Entity
         Usuario usuario = usuarioMapper.toEntity(dto);
-
-        // Encriptar la contraseña
         usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
 
-        // Guardar en la base de datos
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
         log.info("Usuario registrado exitosamente con ID: {}", usuarioGuardado.getId());
 
@@ -64,7 +60,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
     }
 
     @Override
-    public Optional<UsuarioResponseDto> actualizarUsuario(String id, UsuarioCreateDto dto) {
+    public Optional<UsuarioResponseDto> actualizarUsuario(String id, UsuarioUpdateDto dto) {
         log.info("Actualizando usuario con ID: {}", id);
 
         Optional<Usuario> usuarioOpt = usuarioRepository.findById(id);
@@ -75,19 +71,19 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
         Usuario usuario = usuarioOpt.get();
 
-        // Validar que el nuevo email no esté duplicado (si cambió el email)
         if (!usuario.getEmail().equals(dto.getEmail()) && usuarioRepository.existsByEmail(dto.getEmail())) {
             log.warn("Intento de actualizar con email duplicado: {}", dto.getEmail());
-            throw new IllegalArgumentException("El email ya está registrado en el sistema");
+            throw new IllegalArgumentException("El email ya esta registrado en el sistema");
         }
 
-        // Actualizar campos
         usuario.setNombre(dto.getNombre());
         usuario.setApellido(dto.getApellido());
         usuario.setEmail(dto.getEmail());
 
-        // Actualizar contraseña solo si se proporciona una nueva
         if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
+            if (dto.getPassword().length() < 6) {
+                throw new IllegalArgumentException("La contrasena debe tener al menos 6 caracteres");
+            }
             usuario.setPassword(passwordEncoder.encode(dto.getPassword()));
         }
 
@@ -106,7 +102,6 @@ public class UsuarioServiceImpl implements IUsuarioService {
             return false;
         }
 
-        // Soft delete: desactivar el usuario en lugar de eliminarlo físicamente
         Optional<Usuario> usuarioOpt = usuarioRepository.findById(id);
         if (usuarioOpt.isPresent()) {
             Usuario usuario = usuarioOpt.get();

@@ -3,6 +3,7 @@ package com.systembpm.system.modules.user.infrastructure.controller;
 import com.systembpm.system.common.response.ApiResponse;
 import com.systembpm.system.modules.user.application.dto.UsuarioCreateDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
+import com.systembpm.system.modules.user.application.dto.UsuarioUpdateDto;
 import com.systembpm.system.modules.user.application.service.IUsuarioService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -61,7 +62,7 @@ public class UsuarioController {
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<UsuarioResponseDto>> actualizarUsuario(
             @PathVariable String id,
-            @Valid @RequestBody UsuarioCreateDto dto) {
+            @Valid @RequestBody UsuarioUpdateDto dto) {
         log.info("Solicitud PUT /api/users/{}", id);
         return usuarioService.actualizarUsuario(id, dto)
                 .map(usuario -> ResponseEntity.ok(
@@ -90,4 +91,3 @@ public class UsuarioController {
         }
     }
 }
-
