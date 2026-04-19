@@ -17,4 +17,6 @@ public interface IProcesoService {
     Proceso obtenerPorId(String id);
 
     Proceso actualizar(String id, ProcesoCreateDto dto);
+
+    Proceso publicar(String id);
 }

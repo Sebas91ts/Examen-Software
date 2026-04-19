@@ -74,4 +74,10 @@ public class ProcesoController {
 
         return ResponseEntity.ok(ApiResponse.success("Proceso BPMN actualizado exitosamente", procesoActualizado));
     }
+
+    @PutMapping("/{id}/publicar")
+    public ResponseEntity<ApiResponse<Proceso>> publicarProceso(@PathVariable String id) {
+        Proceso procesoPublicado = procesoService.publicar(id);
+        return ResponseEntity.ok(ApiResponse.success("Proceso publicado exitosamente", procesoPublicado));
+    }
 }

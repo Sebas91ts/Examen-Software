@@ -39,7 +39,10 @@ public class ProcesoServiceImpl implements IProcesoService {
                 .nombre(nombreNormalizado)
                 .xml(dto.getXml().trim())
                 .version(1)
+                .estado("BORRADOR")
+                .createdBy("admin")
                 .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
                 .build();
 
         Proceso procesoGuardado = procesoRepository.save(proceso);
@@ -71,13 +74,32 @@ public class ProcesoServiceImpl implements IProcesoService {
         Proceso procesoExistente = procesoRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
 
+        validarEditable(procesoExistente);
+
         procesoExistente.setNombre(dto.getNombre().trim());
         procesoExistente.setXml(dto.getXml().trim());
+        procesoExistente.setUpdatedAt(LocalDateTime.now());
 
         Proceso procesoActualizado = procesoRepository.save(procesoExistente);
         log.info("Proceso BPMN actualizado exitosamente con ID: {}", procesoActualizado.getId());
 
         return procesoActualizado;
+    }
+
+    @Override
+    public Proceso publicar(String id) {
+        log.info("Publicando proceso BPMN con ID: {}", id);
+
+        Proceso proceso = procesoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
+
+        proceso.setEstado("PUBLICADO");
+        proceso.setUpdatedAt(LocalDateTime.now());
+
+        Proceso procesoPublicado = procesoRepository.save(proceso);
+        log.info("Proceso BPMN publicado exitosamente con ID: {}", procesoPublicado.getId());
+
+        return procesoPublicado;
     }
 
     private void validarDto(ProcesoCreateDto dto) {
@@ -100,5 +122,11 @@ public class ProcesoServiceImpl implements IProcesoService {
 
     private String normalizarNombre(String nombre) {
         return nombre.trim().toLowerCase().replaceAll("\\s+", " ");
+    }
+
+    private void validarEditable(Proceso proceso) {
+        if ("PUBLICADO".equalsIgnoreCase(proceso.getEstado())) {
+            throw new IllegalArgumentException("No se puede editar un proceso publicado");
+        }
     }
 }

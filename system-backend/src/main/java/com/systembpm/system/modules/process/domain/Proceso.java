@@ -9,9 +9,6 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 
-/**
- * Entidad Mongo para almacenar procesos BPMN serializados como XML.
- */
 @Data
 @Builder
 @NoArgsConstructor
@@ -23,10 +20,10 @@ public class Proceso {
     private String id;
 
     private String nombre;
-
     private String xml;
-
     private Integer version;
-
+    private String estado; 
+    private String createdBy;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
