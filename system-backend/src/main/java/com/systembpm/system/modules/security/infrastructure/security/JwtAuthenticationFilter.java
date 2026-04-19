@@ -29,6 +29,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final String JWT_COOKIE_NAME = "auth_token";
 
     @Override
     protected void doFilterInternal(
@@ -38,15 +39,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         try {
-            final String authHeader = request.getHeader(AUTHORIZATION_HEADER);
-            
-            if (authHeader == null || !authHeader.startsWith(BEARER_PREFIX)) {
+            final String token = extraerToken(request);
+
+            if (token == null || token.isBlank()) {
                 log.debug("No se encontró token JWT en la petición");
                 filterChain.doFilter(request, response);
                 return;
             }
-
-            final String token = authHeader.substring(BEARER_PREFIX.length());
             final String email = jwtService.obtenerEmailDelToken(token);
             
             log.debug("Token JWT procesado para email: {}", email);
@@ -74,5 +73,24 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private String extraerToken(HttpServletRequest request) {
+        String authHeader = request.getHeader(AUTHORIZATION_HEADER);
+        if (authHeader != null && authHeader.startsWith(BEARER_PREFIX)) {
+            return authHeader.substring(BEARER_PREFIX.length());
+        }
+
+        if (request.getCookies() == null) {
+            return null;
+        }
+
+        for (var cookie : request.getCookies()) {
+            if (JWT_COOKIE_NAME.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+
+        return null;
     }
 }

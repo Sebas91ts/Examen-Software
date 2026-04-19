@@ -6,6 +6,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
@@ -25,6 +26,8 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class JwtService {
+
+    private static final String JWT_COOKIE_NAME = "auth_token";
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -163,5 +166,36 @@ public class JwtService {
         return roles.stream()
                 .map(String::valueOf)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Crea la cookie HttpOnly que transporta el JWT.
+     *
+     * @param token JWT generado
+     * @return cookie lista para agregarse al header Set-Cookie
+     */
+    public ResponseCookie crearCookieJwt(String token) {
+        return ResponseCookie.from(JWT_COOKIE_NAME, token)
+                .httpOnly(true)
+                .secure(false)
+                .path("/")
+                .sameSite("Lax")
+                .maxAge(jwtExpiration / 1000)
+                .build();
+    }
+
+    /**
+     * Elimina la cookie de autenticación.
+     *
+     * @return cookie expirada para cerrar sesión
+     */
+    public ResponseCookie limpiarCookieJwt() {
+        return ResponseCookie.from(JWT_COOKIE_NAME, "")
+                .httpOnly(true)
+                .secure(false)
+                .path("/")
+                .sameSite("Lax")
+                .maxAge(0)
+                .build();
     }
 }

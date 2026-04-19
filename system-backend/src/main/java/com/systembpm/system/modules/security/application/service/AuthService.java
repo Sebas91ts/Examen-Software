@@ -4,6 +4,7 @@ import com.systembpm.system.modules.security.infrastructure.dto.AuthResponseDto;
 import com.systembpm.system.modules.security.infrastructure.dto.LoginRequestDto;
 import com.systembpm.system.modules.security.infrastructure.security.JwtService;
 import com.systembpm.system.modules.user.application.mapper.UsuarioMapper;
+import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
 import com.systembpm.system.modules.user.domain.Usuario;
 import com.systembpm.system.modules.user.infrastructure.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
@@ -66,5 +67,18 @@ public class AuthService {
                 .expiresIn(86400000L) // 24 horas
                 .usuario(usuarioMapper.toResponseDto(usuario))
                 .build();
+    }
+
+    /**
+     * Obtiene el usuario autenticado por email.
+     *
+     * @param email Email del usuario autenticado
+     * @return DTO del usuario autenticado
+     */
+    public UsuarioResponseDto obtenerUsuarioAutenticado(String email) {
+        Usuario usuario = usuarioRepository.findByEmail(email)
+                .orElseThrow(() -> new BadCredentialsException("Usuario autenticado no encontrado"));
+
+        return usuarioMapper.toResponseDto(usuario);
     }
 }
