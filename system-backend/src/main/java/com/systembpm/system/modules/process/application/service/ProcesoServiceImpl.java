@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Implementacion del servicio de procesos BPMN.
@@ -45,6 +46,38 @@ public class ProcesoServiceImpl implements IProcesoService {
         log.info("Proceso BPMN guardado exitosamente con ID: {}", procesoGuardado.getId());
 
         return procesoGuardado;
+    }
+
+    @Override
+    public List<Proceso> listar() {
+        log.info("Listando procesos BPMN");
+        return procesoRepository.findAll();
+    }
+
+    @Override
+    public Proceso obtenerPorId(String id) {
+        log.info("Buscando proceso BPMN por ID: {}", id);
+
+        return procesoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
+    }
+
+    @Override
+    public Proceso actualizar(String id, ProcesoCreateDto dto) {
+        log.info("Actualizando proceso BPMN con ID: {}", id);
+
+        validarDto(dto);
+
+        Proceso procesoExistente = procesoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
+
+        procesoExistente.setNombre(dto.getNombre().trim());
+        procesoExistente.setXml(dto.getXml().trim());
+
+        Proceso procesoActualizado = procesoRepository.save(procesoExistente);
+        log.info("Proceso BPMN actualizado exitosamente con ID: {}", procesoActualizado.getId());
+
+        return procesoActualizado;
     }
 
     private void validarDto(ProcesoCreateDto dto) {
