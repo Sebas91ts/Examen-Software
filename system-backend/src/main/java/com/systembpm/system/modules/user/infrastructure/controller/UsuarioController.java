@@ -1,7 +1,6 @@
 package com.systembpm.system.modules.user.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
-import com.systembpm.system.modules.user.application.dto.UsuarioCreateDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioUpdateDto;
 import com.systembpm.system.modules.user.application.service.IUsuarioService;

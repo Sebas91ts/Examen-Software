@@ -5,6 +5,7 @@ import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRep
 import com.systembpm.system.modules.processinstance.application.dto.ProcesoInstanciaResponseDto;
 import com.systembpm.system.modules.processinstance.domain.ProcesoInstancia;
 import com.systembpm.system.modules.processinstance.infrastructure.repository.ProcesoInstanciaRepository;
+import com.systembpm.system.modules.taskinstance.application.service.ITareaInstanciaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
 
     private final ProcesoRepository procesoRepository;
     private final ProcesoInstanciaRepository procesoInstanciaRepository;
+    private final ITareaInstanciaService tareaInstanciaService;
 
     @Override
     public ProcesoInstanciaResponseDto iniciarDesdeDefinicion(String processDefinitionId) {
@@ -57,6 +59,8 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
 
         ProcesoInstancia guardada = procesoInstanciaRepository.save(instancia);
         log.info("Instancia BPMN creada exitosamente con ID: {}", guardada.getId());
+
+        tareaInstanciaService.crearPrimeraTareaDesdeInstancia(guardada, definicion.getXml());
 
         return mapToResponseDto(guardada);
     }
