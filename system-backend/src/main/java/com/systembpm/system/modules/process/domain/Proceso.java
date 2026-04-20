@@ -24,6 +24,7 @@ public class Proceso {
     private Integer version;
     private String estado; 
     private String createdBy;
+    private String processKey;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

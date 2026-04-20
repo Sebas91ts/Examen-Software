@@ -80,4 +80,14 @@ public class ProcesoController {
         Proceso procesoPublicado = procesoService.publicar(id);
         return ResponseEntity.ok(ApiResponse.success("Proceso publicado exitosamente", procesoPublicado));
     }
+
+    @PostMapping("/{id}/versionar")
+    public ResponseEntity<ApiResponse<Proceso>> versionarProceso(@PathVariable String id) {
+        log.info("Solicitud POST /api/procesos/{}/versionar", id);
+
+        Proceso nuevaVersion = procesoService.crearNuevaVersion(id);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Nueva version del proceso creada exitosamente", nuevaVersion));
+    }
 }

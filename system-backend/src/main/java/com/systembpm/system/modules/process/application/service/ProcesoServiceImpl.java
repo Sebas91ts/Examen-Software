@@ -18,6 +18,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ProcesoServiceImpl implements IProcesoService {
 
+    private static final String ESTADO_BORRADOR = "BORRADOR";
+    private static final String ESTADO_PUBLICADO = "PUBLICADO";
+    private static final String ESTADO_HISTORICO = "HISTORICO";
+    private static final String CREATED_BY_DEFAULT = "admin";
+
     private final ProcesoRepository procesoRepository;
 
     @Override
@@ -26,21 +31,23 @@ public class ProcesoServiceImpl implements IProcesoService {
 
         validarDto(dto);
         String nombreNormalizado = normalizarNombre(dto.getNombre());
+        String processKey = generarProcessKey(nombreNormalizado);
 
         boolean existe = procesoRepository
                 .findByNombreIgnoreCase(nombreNormalizado)
                 .isPresent();
 
         if (existe) {
-             throw new IllegalArgumentException("Ya existe un proceso con ese nombre");
+            throw new IllegalArgumentException("Ya existe un proceso con ese nombre");
         }
 
         Proceso proceso = Proceso.builder()
                 .nombre(nombreNormalizado)
                 .xml(dto.getXml().trim())
                 .version(1)
-                .estado("BORRADOR")
-                .createdBy("admin")
+                .estado(ESTADO_BORRADOR)
+                .createdBy(CREATED_BY_DEFAULT)
+                .processKey(processKey)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -76,7 +83,7 @@ public class ProcesoServiceImpl implements IProcesoService {
 
         validarEditable(procesoExistente);
 
-        procesoExistente.setNombre(dto.getNombre().trim());
+        procesoExistente.setNombre(normalizarNombre(dto.getNombre()));
         procesoExistente.setXml(dto.getXml().trim());
         procesoExistente.setUpdatedAt(LocalDateTime.now());
 
@@ -93,13 +100,58 @@ public class ProcesoServiceImpl implements IProcesoService {
         Proceso proceso = procesoRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
 
-        proceso.setEstado("PUBLICADO");
-        proceso.setUpdatedAt(LocalDateTime.now());
+        List<Proceso> procesosMismaClave = procesoRepository.findByProcessKey(proceso.getProcessKey());
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Proceso procesoRelacionado : procesosMismaClave) {
+            if (!procesoRelacionado.getId().equals(proceso.getId())
+                    && ESTADO_PUBLICADO.equalsIgnoreCase(procesoRelacionado.getEstado())) {
+                procesoRelacionado.setEstado(ESTADO_HISTORICO);
+                procesoRelacionado.setUpdatedAt(now);
+                procesoRepository.save(procesoRelacionado);
+                log.info("Proceso BPMN previo marcado como HISTORICO. ID: {}", procesoRelacionado.getId());
+            }
+        }
+
+        proceso.setEstado(ESTADO_PUBLICADO);
+        proceso.setUpdatedAt(now);
 
         Proceso procesoPublicado = procesoRepository.save(proceso);
         log.info("Proceso BPMN publicado exitosamente con ID: {}", procesoPublicado.getId());
 
         return procesoPublicado;
+    }
+
+    @Override
+    public Proceso crearNuevaVersion(String id) {
+        log.info("Creando nueva version del proceso BPMN con ID: {}", id);
+
+        Proceso procesoOrigen = procesoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
+
+        if (procesoOrigen.getProcessKey() == null || procesoOrigen.getProcessKey().isBlank()) {
+            throw new IllegalArgumentException("El proceso no tiene una clave logica valida");
+        }
+
+        Integer ultimaVersion = procesoRepository.findTopByProcessKeyOrderByVersionDesc(procesoOrigen.getProcessKey())
+                .map(Proceso::getVersion)
+                .orElse(procesoOrigen.getVersion() != null ? procesoOrigen.getVersion() : 1);
+
+        Proceso nuevaVersion = Proceso.builder()
+                .nombre(procesoOrigen.getNombre())
+                .xml(procesoOrigen.getXml())
+                .version(ultimaVersion + 1)
+                .estado(ESTADO_BORRADOR)
+                .createdBy(CREATED_BY_DEFAULT)
+                .processKey(procesoOrigen.getProcessKey())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        Proceso procesoGuardado = procesoRepository.save(nuevaVersion);
+        log.info("Nueva version creada exitosamente con ID: {}", procesoGuardado.getId());
+
+        return procesoGuardado;
     }
 
     private void validarDto(ProcesoCreateDto dto) {
@@ -121,11 +173,19 @@ public class ProcesoServiceImpl implements IProcesoService {
     }
 
     private String normalizarNombre(String nombre) {
-        return nombre.trim().toLowerCase().replaceAll("\\s+", " ");
+        return nombre.trim().replaceAll("\\s+", " ");
+    }
+
+    private String generarProcessKey(String nombre) {
+        String key = nombre.trim().toLowerCase()
+                .replaceAll("[^a-z0-9\\s_]", "")
+                .replaceAll("[\\s_]+", "_");
+
+        return key.isBlank() ? "proceso" : key;
     }
 
     private void validarEditable(Proceso proceso) {
-        if ("PUBLICADO".equalsIgnoreCase(proceso.getEstado())) {
+        if (ESTADO_PUBLICADO.equalsIgnoreCase(proceso.getEstado())) {
             throw new IllegalArgumentException("No se puede editar un proceso publicado");
         }
     }
