@@ -10,5 +10,7 @@ public interface CamundaService {
 
     List<Map<String, Object>> listarTareas();
 
+    Map<String, Object> obtenerTarea(String taskId);
+
     Map<String, Object> completarTarea(String taskId);
 }

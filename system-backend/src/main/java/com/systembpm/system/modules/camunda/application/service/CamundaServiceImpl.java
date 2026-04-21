@@ -112,6 +112,25 @@ public class CamundaServiceImpl implements CamundaService {
     }
 
     @Override
+    public Map<String, Object> obtenerTarea(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("El taskId es obligatorio");
+        }
+
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/task/" + taskId,
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    new ParameterizedTypeReference<>() {
+                    });
+            return response.getBody() != null ? response.getBody() : Map.of();
+        } catch (HttpStatusCodeException ex) {
+            throw new IllegalArgumentException("Camunda rechazo la consulta del detalle de la tarea: " + ex.getResponseBodyAsString(), ex);
+        }
+    }
+
+    @Override
     public Map<String, Object> completarTarea(String taskId) {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("El taskId es obligatorio");

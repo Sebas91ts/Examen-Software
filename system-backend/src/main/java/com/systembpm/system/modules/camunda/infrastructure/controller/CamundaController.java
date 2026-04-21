@@ -43,6 +43,13 @@ public class CamundaController {
                 ApiResponse.success("Tareas activas listadas exitosamente", camundaService.listarTareas()));
     }
 
+    @GetMapping("/tasks/{taskId}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> task(@PathVariable String taskId) {
+        log.info("Solicitud GET /api/camunda/tasks/{}", taskId);
+        return ResponseEntity.ok(
+                ApiResponse.success("Detalle de tarea obtenido exitosamente", camundaService.obtenerTarea(taskId)));
+    }
+
     @PostMapping("/tasks/{taskId}/complete")
     public ResponseEntity<ApiResponse<Map<String, Object>>> complete(@PathVariable String taskId) {
         log.info("Solicitud POST /api/camunda/tasks/{}/complete", taskId);

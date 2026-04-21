@@ -129,21 +129,25 @@ public class ProcesoServiceImpl implements IProcesoService {
         Proceso procesoOrigen = procesoRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
 
-        if (procesoOrigen.getProcessKey() == null || procesoOrigen.getProcessKey().isBlank()) {
-            throw new IllegalArgumentException("El proceso no tiene una clave logica valida");
-        }
+        String processKey = normalizarProcessKey(
+                procesoOrigen.getProcessKey() != null && !procesoOrigen.getProcessKey().isBlank()
+                        ? procesoOrigen.getProcessKey()
+                        : procesoOrigen.getNombre());
 
-        Integer ultimaVersion = procesoRepository.findTopByProcessKeyOrderByVersionDesc(procesoOrigen.getProcessKey())
+        Integer ultimaVersion = procesoRepository.findTopByProcessKeyOrderByVersionDesc(processKey)
                 .map(Proceso::getVersion)
                 .orElse(procesoOrigen.getVersion() != null ? procesoOrigen.getVersion() : 1);
 
         Proceso nuevaVersion = Proceso.builder()
-                .nombre(procesoOrigen.getNombre())
+                .nombre(normalizarNombre(
+                        procesoOrigen.getNombre() != null && !procesoOrigen.getNombre().isBlank()
+                                ? procesoOrigen.getNombre()
+                                : processKey))
                 .xml(procesoOrigen.getXml())
                 .version(ultimaVersion + 1)
                 .estado(ESTADO_BORRADOR)
                 .createdBy(CREATED_BY_DEFAULT)
-                .processKey(procesoOrigen.getProcessKey())
+                .processKey(processKey)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -173,15 +177,26 @@ public class ProcesoServiceImpl implements IProcesoService {
     }
 
     private String normalizarNombre(String nombre) {
+        if (nombre == null || nombre.isBlank()) {
+            return "Proceso sin nombre";
+        }
+
         return nombre.trim().replaceAll("\\s+", " ");
     }
 
     private String generarProcessKey(String nombre) {
-        String key = nombre.trim().toLowerCase()
-                .replaceAll("[^a-z0-9\\s_]", "")
-                .replaceAll("[\\s_]+", "_");
+        return normalizarProcessKey(nombre);
+    }
 
-        return key.isBlank() ? "proceso" : key;
+    private String normalizarProcessKey(String source) {
+        String key = source.trim().toLowerCase()
+                .normalize(java.text.Normalizer.Form.NFD)
+                .replaceAll("[\\p{InCombiningDiacriticalMarks}]", "")
+                .replaceAll("[^a-z0-9\\s_]", "")
+                .replaceAll("[\\s_]+", "_")
+                .replaceAll("^_+|_+$", "");
+
+        return key.isBlank() ? "proceso_sin_nombre" : key;
     }
 
     private void validarEditable(Proceso proceso) {
