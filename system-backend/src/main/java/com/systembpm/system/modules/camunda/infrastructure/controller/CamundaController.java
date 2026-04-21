@@ -1,6 +1,7 @@
 package com.systembpm.system.modules.camunda.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
+import com.systembpm.system.modules.camunda.application.dto.StartProcessRequestDto;
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +35,16 @@ public class CamundaController {
         log.info("Solicitud POST /api/camunda/start/{}", processKey);
         return ResponseEntity.ok(
                 ApiResponse.success("Instancia iniciada en Camunda exitosamente", camundaService.iniciarInstancia(processKey)));
+    }
+
+    @PostMapping("/start/{processKey}/business/{businessKey}")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> startWithBusinessKey(
+            @PathVariable String processKey,
+            @PathVariable String businessKey) {
+        log.info("Solicitud POST /api/camunda/start/{}/business/{}", processKey, businessKey);
+        return ResponseEntity.ok(
+                ApiResponse.success("Instancia iniciada en Camunda exitosamente",
+                        camundaService.iniciarInstanciaPorDefinicion(processKey, businessKey)));
     }
 
     @GetMapping("/tasks")

@@ -79,15 +79,24 @@ public class CamundaServiceImpl implements CamundaService {
 
     @Override
     public Map<String, Object> iniciarInstancia(String processKey) {
+        return iniciarInstanciaPorDefinicion(processKey, null);
+    }
+
+    @Override
+    public Map<String, Object> iniciarInstanciaPorDefinicion(String processKey, String businessKey) {
         if (processKey == null || processKey.isBlank()) {
             throw new IllegalArgumentException("El processKey es obligatorio");
         }
 
         try {
+            Map<String, Object> body = businessKey == null || businessKey.isBlank()
+                    ? Map.of()
+                    : Map.of("businessKey", businessKey);
+
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                     camundaBaseUrl + "/process-definition/key/" + processKey + "/start",
                     HttpMethod.POST,
-                    new HttpEntity<>(Map.of()),
+                    new HttpEntity<>(body),
                     new ParameterizedTypeReference<>() {
                     });
             return response.getBody() != null ? response.getBody() : Map.of();

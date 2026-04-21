@@ -21,4 +21,6 @@ public interface IProcesoService {
     Proceso publicar(String id);
 
     Proceso crearNuevaVersion(String id);
+
+    Proceso publicarYDesplegar(String id);
 }

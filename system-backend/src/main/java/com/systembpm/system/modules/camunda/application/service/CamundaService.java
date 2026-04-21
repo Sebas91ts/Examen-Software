@@ -8,6 +8,8 @@ public interface CamundaService {
 
     Map<String, Object> iniciarInstancia(String processKey);
 
+    Map<String, Object> iniciarInstanciaPorDefinicion(String processKey, String businessKey);
+
     List<Map<String, Object>> listarTareas();
 
     Map<String, Object> obtenerTarea(String taskId);

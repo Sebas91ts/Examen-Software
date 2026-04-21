@@ -3,10 +3,12 @@ package com.systembpm.system.modules.process.application.service;
 import com.systembpm.system.modules.process.application.dto.ProcesoCreateDto;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
+import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -24,6 +26,7 @@ public class ProcesoServiceImpl implements IProcesoService {
     private static final String CREATED_BY_DEFAULT = "admin";
 
     private final ProcesoRepository procesoRepository;
+    private final CamundaService camundaService;
 
     @Override
     public Proceso guardar(ProcesoCreateDto dto) {
@@ -123,6 +126,13 @@ public class ProcesoServiceImpl implements IProcesoService {
     }
 
     @Override
+    public Proceso publicarYDesplegar(String id) {
+        Proceso publicado = publicar(id);
+        camundaService.desplegarProceso(publicado.getId());
+        return publicado;
+    }
+
+    @Override
     public Proceso crearNuevaVersion(String id) {
         log.info("Creando nueva version del proceso BPMN con ID: {}", id);
 
@@ -189,8 +199,7 @@ public class ProcesoServiceImpl implements IProcesoService {
     }
 
     private String normalizarProcessKey(String source) {
-        String key = source.trim().toLowerCase()
-                .normalize(java.text.Normalizer.Form.NFD)
+        String key = Normalizer.normalize(source.trim().toLowerCase(), Normalizer.Form.NFD)
                 .replaceAll("[\\p{InCombiningDiacriticalMarks}]", "")
                 .replaceAll("[^a-z0-9\\s_]", "")
                 .replaceAll("[\\s_]+", "_")

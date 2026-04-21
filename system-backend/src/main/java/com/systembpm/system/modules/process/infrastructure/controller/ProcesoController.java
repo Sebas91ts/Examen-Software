@@ -77,8 +77,8 @@ public class ProcesoController {
 
     @PutMapping("/{id}/publicar")
     public ResponseEntity<ApiResponse<Proceso>> publicarProceso(@PathVariable String id) {
-        Proceso procesoPublicado = procesoService.publicar(id);
-        return ResponseEntity.ok(ApiResponse.success("Proceso publicado exitosamente", procesoPublicado));
+        Proceso procesoPublicado = procesoService.publicarYDesplegar(id);
+        return ResponseEntity.ok(ApiResponse.success("Proceso publicado y desplegado en Camunda exitosamente", procesoPublicado));
     }
 
     @PostMapping("/{id}/versionar")
