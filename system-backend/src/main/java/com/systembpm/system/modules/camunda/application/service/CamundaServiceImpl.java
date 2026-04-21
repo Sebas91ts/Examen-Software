@@ -2,6 +2,8 @@ package com.systembpm.system.modules.camunda.application.service;
 
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
+import com.systembpm.system.modules.area.domain.Area;
+import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +23,14 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.xml.sax.InputSource;
+import java.io.StringReader;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -28,6 +38,7 @@ public class CamundaServiceImpl implements CamundaService {
 
     private final RestTemplate restTemplate;
     private final ProcesoRepository procesoRepository;
+    private final AreaRepository areaRepository;
 
     @Value("${camunda.base-url}")
     private String camundaBaseUrl;
@@ -114,7 +125,10 @@ public class CamundaServiceImpl implements CamundaService {
                     HttpEntity.EMPTY,
                     new ParameterizedTypeReference<>() {
                     });
-            return response.getBody() != null ? response.getBody() : List.of();
+            List<Map<String, Object>> tareas = response.getBody() != null ? response.getBody() : List.of();
+            return tareas.stream()
+                    .map(this::enriquecerTareaConArea)
+                    .toList();
         } catch (HttpStatusCodeException ex) {
             throw new IllegalArgumentException("Camunda rechazo la consulta de tareas: " + ex.getResponseBodyAsString(), ex);
         }
@@ -133,7 +147,7 @@ public class CamundaServiceImpl implements CamundaService {
                     HttpEntity.EMPTY,
                     new ParameterizedTypeReference<>() {
                     });
-            return response.getBody() != null ? response.getBody() : Map.of();
+            return enriquecerTareaConArea(response.getBody() != null ? response.getBody() : Map.of());
         } catch (HttpStatusCodeException ex) {
             throw new IllegalArgumentException("Camunda rechazo la consulta del detalle de la tarea: " + ex.getResponseBodyAsString(), ex);
         }
@@ -156,5 +170,149 @@ public class CamundaServiceImpl implements CamundaService {
         } catch (HttpStatusCodeException ex) {
             throw new IllegalArgumentException("Camunda rechazo la finalizacion de la tarea: " + ex.getResponseBodyAsString(), ex);
         }
+    }
+
+    private Map<String, Object> enriquecerTareaConArea(Map<String, Object> tarea) {
+        if (tarea == null || tarea.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> enriquecida = new java.util.LinkedHashMap<>(tarea);
+        String processDefinitionId = stringValue(tarea.get("processDefinitionId"));
+        String taskDefinitionKey = stringValue(tarea.get("taskDefinitionKey"));
+
+        String processKey = extraerProcessKey(processDefinitionId);
+        enriquecida.put("nombreProceso", resolverNombreProceso(processKey));
+
+        Area area = resolverAreaDesdeBpmn(processKey, taskDefinitionKey);
+        if (area != null) {
+            enriquecida.put("areaId", area.getId());
+            enriquecida.put("areaNombre", area.getNombre());
+        } else {
+            enriquecida.put("areaId", null);
+            enriquecida.put("areaNombre", "Área no identificada");
+        }
+
+        return enriquecida;
+    }
+
+    private String resolverNombreProceso(String processKey) {
+        if (processKey == null || processKey.isBlank()) {
+            return "Proceso no identificado";
+        }
+
+        return procesoRepository.findTopByProcessKeyOrderByVersionDesc(processKey.trim())
+                .map(Proceso::getNombre)
+                .filter(nombre -> nombre != null && !nombre.isBlank())
+                .orElseGet(() -> procesarNombreFallback(processKey));
+    }
+
+    private String procesarNombreFallback(String processKey) {
+        return processKey.replace('_', ' ').trim().isBlank()
+                ? "Proceso no identificado"
+                : processKey;
+    }
+
+    private Area resolverAreaDesdeBpmn(String processKey, String taskDefinitionKey) {
+        if (processKey == null || processKey.isBlank() || taskDefinitionKey == null || taskDefinitionKey.isBlank()) {
+            return null;
+        }
+
+        Proceso procesoPublicado = procesoRepository.findTopByProcessKeyOrderByVersionDesc(processKey.trim())
+                .orElse(null);
+        if (procesoPublicado == null || procesoPublicado.getXml() == null || procesoPublicado.getXml().isBlank()) {
+            return null;
+        }
+
+        try {
+            Document document = parseDocument(procesoPublicado.getXml());
+            Element taskElement = encontrarElementoPorId(document, taskDefinitionKey.trim());
+            if (taskElement == null) {
+                return null;
+            }
+
+            Element laneElement = encontrarLaneQueContieneNodo(document, taskDefinitionKey.trim());
+            if (laneElement == null) {
+                return null;
+            }
+
+            String areaId = leerAreaIdDeLane(laneElement);
+            if (areaId == null || areaId.isBlank()) {
+                return null;
+            }
+
+            return areaRepository.findById(areaId.trim())
+                    .filter(area -> area.getActiva() == null || area.getActiva())
+                    .orElse(null);
+        } catch (Exception ex) {
+            log.warn("No se pudo resolver el area para la tarea {} del proceso {}", taskDefinitionKey, processKey, ex);
+            return null;
+        }
+    }
+
+    private Element encontrarLaneQueContieneNodo(Document document, String nodeId) {
+        NodeList lanes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "lane");
+        for (int i = 0; i < lanes.getLength(); i++) {
+            Element lane = (Element) lanes.item(i);
+            NodeList flowNodeRefs = lane.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "flowNodeRef");
+            for (int j = 0; j < flowNodeRefs.getLength(); j++) {
+                String ref = flowNodeRefs.item(j).getTextContent();
+                if (nodeId.equals(ref != null ? ref.trim() : null)) {
+                    return lane;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String leerAreaIdDeLane(Element laneElement) {
+        if (laneElement == null) {
+            return null;
+        }
+
+        NodeList areaRefs = laneElement.getElementsByTagNameNS("http://systembpm.com/schema", "areaRef");
+        if (areaRefs.getLength() == 0) {
+            return null;
+        }
+
+        String value = areaRefs.item(0).getTextContent();
+        return value != null ? value.trim() : null;
+    }
+
+    private String extraerProcessKey(String processDefinitionId) {
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            return "";
+        }
+
+        int separatorIndex = processDefinitionId.indexOf(':');
+        if (separatorIndex <= 0) {
+            return processDefinitionId.trim();
+        }
+
+        return processDefinitionId.substring(0, separatorIndex).trim();
+    }
+
+    private Document parseDocument(String xml) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setExpandEntityReferences(false);
+        return factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+    }
+
+    private Element encontrarElementoPorId(Document document, String elementId) {
+        NodeList allNodes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "*");
+        for (int i = 0; i < allNodes.getLength(); i++) {
+            Element element = (Element) allNodes.item(i);
+            if (elementId.equals(element.getAttribute("id"))) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }
