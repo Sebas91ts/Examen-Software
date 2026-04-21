@@ -40,6 +40,9 @@ jwt:
   expiration: ${JWT_EXPIRATION:86400000}
   prefix: ${JWT_PREFIX:Bearer }
 
+camunda:
+  base-url: ${CAMUNDA_BASE_URL:http://localhost:8081/engine-rest}
+
 ---
 # ==========================================
 # PERFIL DE DESARROLLO (dev)
