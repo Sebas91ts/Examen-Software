@@ -33,4 +33,6 @@ public class UsuarioCreateDto {
     @NotBlank(message = "La contraseña es obligatoria")
     @Size(min = 6, max = 100, message = "La contraseña debe tener al menos 6 caracteres")
     private String password;
+
+    private String areaId;
 }

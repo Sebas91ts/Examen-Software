@@ -30,6 +30,10 @@ public class UsuarioResponseDto {
 
     private Boolean activo;
 
+    private String areaId;
+
+    private String areaNombre;
+
     private LocalDateTime fechaCreacion;
 
     private LocalDateTime fechaActualizacion;

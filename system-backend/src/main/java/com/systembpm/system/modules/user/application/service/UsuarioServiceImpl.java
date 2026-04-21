@@ -6,6 +6,8 @@ import com.systembpm.system.modules.user.application.dto.UsuarioUpdateDto;
 import com.systembpm.system.modules.user.application.mapper.UsuarioMapper;
 import com.systembpm.system.modules.user.domain.Usuario;
 import com.systembpm.system.modules.user.infrastructure.repository.UsuarioRepository;
+import com.systembpm.system.modules.area.domain.Area;
+import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,6 +27,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
     private final UsuarioRepository usuarioRepository;
     private final UsuarioMapper usuarioMapper;
+    private final AreaRepository areaRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Override
@@ -38,6 +41,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
         Usuario usuario = usuarioMapper.toEntity(dto);
         usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
+        asignarAreaSiCorresponde(usuario, dto.getAreaId());
 
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
         log.info("Usuario registrado exitosamente con ID: {}", usuarioGuardado.getId());
@@ -79,6 +83,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
         usuario.setNombre(dto.getNombre());
         usuario.setApellido(dto.getApellido());
         usuario.setEmail(dto.getEmail());
+        asignarAreaSiCorresponde(usuario, dto.getAreaId());
 
         if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
             if (dto.getPassword().length() < 6) {
@@ -117,5 +122,20 @@ public class UsuarioServiceImpl implements IUsuarioService {
     @Override
     public Optional<Usuario> buscarPorEmail(String email) {
         return usuarioRepository.findByEmail(email);
+    }
+
+    private void asignarAreaSiCorresponde(Usuario usuario, String areaId) {
+        if (areaId == null || areaId.isBlank()) {
+            usuario.setAreaId(null);
+            usuario.setAreaNombre(null);
+            return;
+        }
+
+        String normalizedAreaId = areaId.trim();
+        Area area = areaRepository.findById(normalizedAreaId)
+                .orElseThrow(() -> new IllegalArgumentException("El area seleccionada no existe"));
+
+        usuario.setAreaId(area.getId());
+        usuario.setAreaNombre(area.getNombre());
     }
 }

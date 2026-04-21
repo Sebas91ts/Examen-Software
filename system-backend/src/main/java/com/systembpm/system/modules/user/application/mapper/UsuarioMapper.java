@@ -3,6 +3,8 @@ package com.systembpm.system.modules.user.application.mapper;
 import com.systembpm.system.modules.user.application.dto.UsuarioCreateDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
 import com.systembpm.system.modules.user.domain.Usuario;
+import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -13,7 +15,10 @@ import java.util.stream.Collectors;
  * Centraliza la lógica de transformación de datos.
  */
 @Component
+@RequiredArgsConstructor
 public class UsuarioMapper {
+
+    private final AreaRepository areaRepository;
 
     /**
      * Convierte un DTO de creación a una entidad Usuario.
@@ -25,6 +30,8 @@ public class UsuarioMapper {
                 .apellido(dto.getApellido())
                 .email(dto.getEmail())
                 .password(dto.getPassword()) // Se encriptará en el Service
+                .areaId(normalizeAreaId(dto.getAreaId()))
+                .areaNombre(resolveAreaName(dto.getAreaId()))
                 .roles(List.of("ROLE_USER")) // Rol por defecto
                 .activo(true)
                 .build();
@@ -45,6 +52,8 @@ public class UsuarioMapper {
                 .email(usuario.getEmail())
                 .roles(usuario.getRoles())
                 .activo(usuario.getActivo())
+                .areaId(usuario.getAreaId())
+                .areaNombre(usuario.getAreaNombre())
                 .fechaCreacion(usuario.getFechaCreacion())
                 .fechaActualizacion(usuario.getFechaActualizacion())
                 .build();
@@ -57,5 +66,20 @@ public class UsuarioMapper {
         return usuarios.stream()
                 .map(this::toResponseDto)
                 .collect(Collectors.toList());
+    }
+
+    private String normalizeAreaId(String areaId) {
+        return areaId != null && !areaId.isBlank() ? areaId.trim() : null;
+    }
+
+    private String resolveAreaName(String areaId) {
+        String normalizedAreaId = normalizeAreaId(areaId);
+        if (normalizedAreaId == null) {
+            return null;
+        }
+
+        return areaRepository.findById(normalizedAreaId)
+                .map(area -> area.getNombre())
+                .orElseThrow(() -> new IllegalArgumentException("El area seleccionada no existe"));
     }
 }

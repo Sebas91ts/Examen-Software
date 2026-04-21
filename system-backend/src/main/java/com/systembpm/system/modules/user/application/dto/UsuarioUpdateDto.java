@@ -31,4 +31,6 @@ public class UsuarioUpdateDto {
     private String email;
 
     private String password;
+
+    private String areaId;
 }
