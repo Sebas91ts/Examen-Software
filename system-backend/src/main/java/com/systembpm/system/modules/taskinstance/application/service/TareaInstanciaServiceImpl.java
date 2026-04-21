@@ -2,7 +2,6 @@ package com.systembpm.system.modules.taskinstance.application.service;
 
 import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
-import com.systembpm.system.modules.processinstance.domain.ProcesoInstancia;
 import com.systembpm.system.modules.taskinstance.application.dto.TareaInstanciaResponseDto;
 import com.systembpm.system.modules.taskinstance.domain.TareaInstancia;
 import com.systembpm.system.modules.taskinstance.infrastructure.repository.TareaInstanciaRepository;
@@ -34,10 +33,26 @@ public class TareaInstanciaServiceImpl implements ITareaInstanciaService {
     private final AreaRepository areaRepository;
 
     @Override
-    public TareaInstanciaResponseDto crearPrimeraTareaDesdeInstancia(ProcesoInstancia instancia, String xmlProceso) {
-        log.info("Creando primera tarea para instancia BPMN: {}", instancia.getId());
+    public TareaInstanciaResponseDto crearPrimeraTareaDesdeInstancia(
+            String processInstanceId,
+            String processDefinitionId,
+            String nombreProceso,
+            String xmlProceso) {
+        log.info("Creando primera tarea para instancia BPMN: {}", processInstanceId);
 
-        if (instancia == null) {
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            throw new IllegalArgumentException("El identificador de la instancia es obligatorio");
+        }
+
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            throw new IllegalArgumentException("El identificador de la definicion es obligatorio");
+        }
+
+        if (nombreProceso == null || nombreProceso.isBlank()) {
+            throw new IllegalArgumentException("El nombre del proceso es obligatorio");
+        }
+
+        if (xmlProceso == null || xmlProceso.isBlank()) {
             throw new IllegalArgumentException("La instancia de proceso es obligatoria");
         }
 
@@ -45,8 +60,9 @@ public class TareaInstanciaServiceImpl implements ITareaInstanciaService {
         LaneAreaInfo laneAreaInfo = resolverLaneYArea(xmlProceso, nodoInicial.taskId);
 
         TareaInstancia tarea = TareaInstancia.builder()
-                .processInstanceId(instancia.getId())
-                .processDefinitionId(instancia.getProcessDefinitionId())
+                .processInstanceId(processInstanceId)
+                .processDefinitionId(processDefinitionId)
+                .nombreProceso(nombreProceso)
                 .taskDefinitionKey(nodoInicial.taskId)
                 .nombreTarea(nodoInicial.taskName)
                 .areaId(laneAreaInfo.areaId)
@@ -71,8 +87,48 @@ public class TareaInstanciaServiceImpl implements ITareaInstanciaService {
     }
 
     @Override
+    public List<TareaInstanciaResponseDto> listarPendientes() {
+        return tareaInstanciaRepository.findByEstadoIgnoreCaseOrderByCreatedAtAsc(ESTADO_PENDIENTE).stream()
+                .map(this::mapToResponseDto)
+                .toList();
+    }
+
+    @Override
     public List<TareaInstanciaResponseDto> listarPorInstancia(String processInstanceId) {
         return tareaInstanciaRepository.findByProcessInstanceIdOrderByCreatedAtAsc(processInstanceId).stream()
+                .map(this::mapToResponseDto)
+                .toList();
+    }
+
+    @Override
+    public List<TareaInstanciaResponseDto> listarPorArea(String areaId) {
+        if (areaId == null || areaId.isBlank()) {
+            throw new IllegalArgumentException("El areaId es obligatorio");
+        }
+
+        return tareaInstanciaRepository.findByAreaIdIgnoreCaseOrderByCreatedAtAsc(areaId.trim()).stream()
+                .map(this::mapToResponseDto)
+                .toList();
+    }
+
+    @Override
+    public List<TareaInstanciaResponseDto> listarPorUsuario(String assignedTo) {
+        if (assignedTo == null || assignedTo.isBlank()) {
+            throw new IllegalArgumentException("assignedTo es obligatorio");
+        }
+
+        return tareaInstanciaRepository.findByAssignedToIgnoreCaseOrderByCreatedAtAsc(assignedTo.trim()).stream()
+                .map(this::mapToResponseDto)
+                .toList();
+    }
+
+    @Override
+    public List<TareaInstanciaResponseDto> listarPorProceso(String nombreProceso) {
+        if (nombreProceso == null || nombreProceso.isBlank()) {
+            throw new IllegalArgumentException("El nombre del proceso es obligatorio");
+        }
+
+        return tareaInstanciaRepository.findByNombreProcesoIgnoreCaseOrderByCreatedAtAsc(nombreProceso.trim()).stream()
                 .map(this::mapToResponseDto)
                 .toList();
     }
@@ -243,6 +299,7 @@ public class TareaInstanciaServiceImpl implements ITareaInstanciaService {
                 .id(tarea.getId())
                 .processInstanceId(tarea.getProcessInstanceId())
                 .processDefinitionId(tarea.getProcessDefinitionId())
+                .nombreProceso(tarea.getNombreProceso())
                 .taskDefinitionKey(tarea.getTaskDefinitionKey())
                 .nombreTarea(tarea.getNombreTarea())
                 .areaId(tarea.getAreaId())

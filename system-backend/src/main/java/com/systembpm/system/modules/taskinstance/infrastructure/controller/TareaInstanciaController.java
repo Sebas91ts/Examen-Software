@@ -27,6 +27,13 @@ public class TareaInstanciaController {
         return ResponseEntity.ok(ApiResponse.success("Tareas listadas exitosamente", tareaInstanciaService.listar()));
     }
 
+    @GetMapping("/pendientes")
+    public ResponseEntity<ApiResponse<List<TareaInstanciaResponseDto>>> listarPendientes() {
+        log.info("Solicitud GET /api/tarea-instancias/pendientes");
+        return ResponseEntity.ok(
+                ApiResponse.success("Tareas pendientes listadas exitosamente", tareaInstanciaService.listarPendientes()));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<TareaInstanciaResponseDto>> obtenerPorId(@PathVariable String id) {
         log.info("Solicitud GET /api/tarea-instancias/{}", id);
@@ -40,5 +47,30 @@ public class TareaInstanciaController {
         return ResponseEntity.ok(
                 ApiResponse.success("Tareas de la instancia listadas exitosamente",
                         tareaInstanciaService.listarPorInstancia(processInstanceId)));
+    }
+
+    @GetMapping("/area/{areaId}")
+    public ResponseEntity<ApiResponse<List<TareaInstanciaResponseDto>>> listarPorArea(@PathVariable String areaId) {
+        log.info("Solicitud GET /api/tarea-instancias/area/{}", areaId);
+        return ResponseEntity.ok(
+                ApiResponse.success("Tareas del area listadas exitosamente", tareaInstanciaService.listarPorArea(areaId)));
+    }
+
+    @GetMapping("/usuario/{assignedTo}")
+    public ResponseEntity<ApiResponse<List<TareaInstanciaResponseDto>>> listarPorUsuario(
+            @PathVariable String assignedTo) {
+        log.info("Solicitud GET /api/tarea-instancias/usuario/{}", assignedTo);
+        return ResponseEntity.ok(
+                ApiResponse.success("Tareas del usuario listadas exitosamente",
+                        tareaInstanciaService.listarPorUsuario(assignedTo)));
+    }
+
+    @GetMapping("/proceso/{nombreProceso}")
+    public ResponseEntity<ApiResponse<List<TareaInstanciaResponseDto>>> listarPorProceso(
+            @PathVariable String nombreProceso) {
+        log.info("Solicitud GET /api/tarea-instancias/proceso/{}", nombreProceso);
+        return ResponseEntity.ok(
+                ApiResponse.success("Tareas del proceso listadas exitosamente",
+                        tareaInstanciaService.listarPorProceso(nombreProceso)));
     }
 }

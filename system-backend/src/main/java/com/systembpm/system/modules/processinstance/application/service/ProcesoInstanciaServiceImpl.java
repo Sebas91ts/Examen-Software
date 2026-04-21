@@ -60,7 +60,11 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
         ProcesoInstancia guardada = procesoInstanciaRepository.save(instancia);
         log.info("Instancia BPMN creada exitosamente con ID: {}", guardada.getId());
 
-        tareaInstanciaService.crearPrimeraTareaDesdeInstancia(guardada, definicion.getXml());
+        tareaInstanciaService.crearPrimeraTareaDesdeInstancia(
+                guardada.getId(),
+                guardada.getProcessDefinitionId(),
+                guardada.getNombreProceso(),
+                definicion.getXml());
 
         return mapToResponseDto(guardada);
     }

@@ -15,6 +15,7 @@ public class TareaInstanciaResponseDto {
     private String id;
     private String processInstanceId;
     private String processDefinitionId;
+    private String nombreProceso;
     private String taskDefinitionKey;
     private String nombreTarea;
     private String areaId;

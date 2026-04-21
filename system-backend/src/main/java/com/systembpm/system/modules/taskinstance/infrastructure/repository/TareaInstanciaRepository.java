@@ -7,5 +7,13 @@ import java.util.List;
 
 public interface TareaInstanciaRepository extends MongoRepository<TareaInstancia, String> {
 
+    List<TareaInstancia> findByEstadoIgnoreCaseOrderByCreatedAtAsc(String estado);
+
     List<TareaInstancia> findByProcessInstanceIdOrderByCreatedAtAsc(String processInstanceId);
+
+    List<TareaInstancia> findByAreaIdIgnoreCaseOrderByCreatedAtAsc(String areaId);
+
+    List<TareaInstancia> findByAssignedToIgnoreCaseOrderByCreatedAtAsc(String assignedTo);
+
+    List<TareaInstancia> findByNombreProcesoIgnoreCaseOrderByCreatedAtAsc(String nombreProceso);
 }
