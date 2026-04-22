@@ -4,6 +4,8 @@ import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
 import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
+import com.systembpm.system.modules.security.application.service.AuthService;
+import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -39,6 +42,7 @@ public class CamundaServiceImpl implements CamundaService {
     private final RestTemplate restTemplate;
     private final ProcesoRepository procesoRepository;
     private final AreaRepository areaRepository;
+    private final AuthService authService;
 
     @Value("${camunda.base-url}")
     private String camundaBaseUrl;
@@ -118,6 +122,33 @@ public class CamundaServiceImpl implements CamundaService {
 
     @Override
     public List<Map<String, Object>> listarTareas() {
+        return listarTareasTodas();
+    }
+
+    @Override
+    public List<Map<String, Object>> listarTareasPorAssignee(String assignee) {
+        if (assignee == null || assignee.isBlank()) {
+            throw new IllegalArgumentException("El assignee es obligatorio");
+        }
+
+        return listarTareasTodas().stream()
+                .filter(tarea -> assignee.equalsIgnoreCase(stringValue(tarea.get("assignee"))))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Map<String, Object>> listarTareasPorArea(String areaId) {
+        if (areaId == null || areaId.isBlank()) {
+            throw new IllegalArgumentException("El areaId es obligatorio");
+        }
+
+        return listarTareasTodas().stream()
+                .filter(tarea -> areaId.equalsIgnoreCase(stringValue(tarea.get("areaId"))))
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<Map<String, Object>> listarTareasTodas() {
         try {
             ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
                     camundaBaseUrl + "/task",
@@ -169,6 +200,49 @@ public class CamundaServiceImpl implements CamundaService {
             return response.getBody() != null ? response.getBody() : Map.of();
         } catch (HttpStatusCodeException ex) {
             throw new IllegalArgumentException("Camunda rechazo la finalizacion de la tarea: " + ex.getResponseBodyAsString(), ex);
+        }
+    }
+
+    @Override
+    public Map<String, Object> tomarTarea(String taskId, String userEmail) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("El taskId es obligatorio");
+        }
+        if (userEmail == null || userEmail.isBlank()) {
+            throw new IllegalArgumentException("El usuario autenticado es obligatorio");
+        }
+
+        Map<String, Object> tarea = obtenerTarea(taskId);
+        String assignee = stringValue(tarea.get("assignee"));
+        if (assignee != null && !assignee.isBlank()) {
+            throw new IllegalArgumentException("La tarea ya fue tomada por otro usuario");
+        }
+
+        UsuarioResponseDto usuario = authService.obtenerUsuarioAutenticado(userEmail);
+        String tareaAreaId = stringValue(tarea.get("areaId"));
+        if (tareaAreaId == null || tareaAreaId.isBlank() || tarea.get("areaNombre") == null) {
+            throw new IllegalArgumentException("La tarea no tiene un area identificable");
+        }
+
+        if (usuario.getAreaId() == null || usuario.getAreaId().isBlank()) {
+            throw new IllegalArgumentException("Tu usuario no tiene un area asignada");
+        }
+
+        if (!usuario.getAreaId().equalsIgnoreCase(tareaAreaId.trim())) {
+            throw new IllegalArgumentException(
+                    "Solo usuarios del area " + tarea.get("areaNombre") + " pueden tomar esta tarea");
+        }
+
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/task/" + taskId + "/claim",
+                    HttpMethod.POST,
+                    new HttpEntity<>(Map.of("userId", userEmail.trim())),
+                    new ParameterizedTypeReference<>() {
+                    });
+            return response.getBody() != null ? response.getBody() : Map.of();
+        } catch (HttpStatusCodeException ex) {
+            throw new IllegalArgumentException("Camunda rechazo la toma de la tarea: " + ex.getResponseBodyAsString(), ex);
         }
     }
 
