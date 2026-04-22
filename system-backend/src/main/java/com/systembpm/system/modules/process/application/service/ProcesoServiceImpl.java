@@ -4,6 +4,9 @@ import com.systembpm.system.modules.process.application.dto.ProcesoCreateDto;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
+import com.systembpm.system.modules.form.domain.FormDefinition;
+import com.systembpm.system.modules.form.domain.FormFieldDefinition;
+import com.systembpm.system.modules.form.infrastructure.repository.FormDefinitionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -11,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Implementacion del servicio de procesos BPMN.
@@ -27,6 +31,7 @@ public class ProcesoServiceImpl implements IProcesoService {
 
     private final ProcesoRepository procesoRepository;
     private final CamundaService camundaService;
+    private final FormDefinitionRepository formDefinitionRepository;
 
     @Override
     public Proceso guardar(ProcesoCreateDto dto) {
@@ -163,9 +168,75 @@ public class ProcesoServiceImpl implements IProcesoService {
                 .build();
 
         Proceso procesoGuardado = procesoRepository.save(nuevaVersion);
+        clonarFormulariosDeVersionAnterior(procesoOrigen, procesoGuardado);
         log.info("Nueva version creada exitosamente con ID: {}", procesoGuardado.getId());
 
         return procesoGuardado;
+    }
+
+    private void clonarFormulariosDeVersionAnterior(Proceso procesoOrigen, Proceso nuevaVersion) {
+        if (procesoOrigen == null || nuevaVersion == null) {
+            return;
+        }
+
+        String processKey = nuevaVersion.getProcessKey();
+        Integer versionAnterior = procesoOrigen.getVersion();
+        Integer nuevaVersionNumero = nuevaVersion.getVersion();
+
+        if (processKey == null || processKey.isBlank() || versionAnterior == null || nuevaVersionNumero == null) {
+            return;
+        }
+
+        List<FormDefinition> formulariosOrigen = formDefinitionRepository
+                .findByProcessKeyIgnoreCaseOrderByProcessVersionAsc(processKey)
+                .stream()
+                .filter(form -> versionAnterior.equals(form.getProcessVersion()))
+                .toList();
+
+        if (formulariosOrigen.isEmpty()) {
+            return;
+        }
+
+        List<FormDefinition> formulariosClonados = formulariosOrigen.stream()
+                .filter(form -> !formDefinitionRepository.existsByProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
+                        processKey,
+                        nuevaVersionNumero,
+                        form.getTaskDefinitionKey()))
+                .map(form -> FormDefinition.builder()
+                        .processKey(form.getProcessKey())
+                        .processVersion(nuevaVersionNumero)
+                        .taskDefinitionKey(form.getTaskDefinitionKey())
+                        .title(form.getTitle())
+                        .fields(clonarCampos(form.getFields()))
+                        .active(form.getActive())
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .build())
+                .collect(Collectors.toList());
+
+        if (!formulariosClonados.isEmpty()) {
+            formDefinitionRepository.saveAll(formulariosClonados);
+            log.info("Se clonaron {} formularios de la version {} a la version {}", formulariosClonados.size(), versionAnterior, nuevaVersionNumero);
+        }
+    }
+
+    private List<FormFieldDefinition> clonarCampos(List<FormFieldDefinition> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return List.of();
+        }
+
+        return fields.stream()
+                .map(field -> FormFieldDefinition.builder()
+                        .name(field.getName())
+                        .label(field.getLabel())
+                        .type(field.getType())
+                        .required(field.getRequired())
+                        .placeholder(field.getPlaceholder())
+                        .helpText(field.getHelpText())
+                        .order(field.getOrder())
+                        .options(field.getOptions() == null ? List.of() : List.copyOf(field.getOptions()))
+                        .build())
+                .toList();
     }
 
     private void validarDto(ProcesoCreateDto dto) {

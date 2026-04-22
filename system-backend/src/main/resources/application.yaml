@@ -16,6 +16,10 @@ spring:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017}
       database: ${MONGODB_DATABASE:systembpm_db}
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:10MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:10MB}
 
 # ==========================================
 # CONFIGURACIÓN DE LOGGING
@@ -42,6 +46,11 @@ jwt:
 
 camunda:
   base-url: ${CAMUNDA_BASE_URL:http://localhost:8081/engine-rest}
+
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:dpicsykwa}
+  api-key: ${CLOUDINARY_API_KEY:753318879769954}
+  api-secret: ${CLOUDINARY_API_SECRET:HJ-l3MyzVS76zTGxdq12YzQ2klE}
 
 ---
 # ==========================================

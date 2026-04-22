@@ -198,6 +198,7 @@ public class CamundaServiceImpl implements CamundaService {
         try {
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
             Map<String, Object> normalizedVariables = normalizeVariables(variables);
+            log.info("Enviando variables a Camunda para tarea {}: {}", taskId, normalizedVariables);
             if (!normalizedVariables.isEmpty()) {
                 payload.put("variables", normalizedVariables);
             }
@@ -418,12 +419,90 @@ public class CamundaServiceImpl implements CamundaService {
                 continue;
             }
 
+            if (value instanceof Map<?, ?> mapValue) {
+                normalized.put(key, buildSerializedFileVariable(mapValue));
+                continue;
+            }
+
             Map<String, Object> camundaVariable = new java.util.LinkedHashMap<>();
             camundaVariable.put("value", normalizeVariableValue(value));
             camundaVariable.put("type", resolveVariableType(value));
             normalized.put(key, camundaVariable);
         }
         return normalized;
+    }
+
+    private Map<String, Object> buildSerializedFileVariable(Map<?, ?> value) {
+        Map<String, Object> camundaVariable = new java.util.LinkedHashMap<>();
+        camundaVariable.put("value", serializeToJson(value));
+        camundaVariable.put("type", "String");
+        return camundaVariable;
+    }
+
+    private String serializeToJson(Map<?, ?> value) {
+        Map<String, Object> normalizedValue = new java.util.LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : value.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            normalizedValue.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+
+        StringBuilder json = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, Object> entry : normalizedValue.entrySet()) {
+            if (!first) {
+                json.append(',');
+            }
+            first = false;
+            json.append('\"')
+                    .append(escapeJson(entry.getKey()))
+                    .append('\"')
+                    .append(':')
+                    .append(toJsonValue(entry.getValue()));
+        }
+        json.append('}');
+        return json.toString();
+    }
+
+    private String toJsonValue(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            return String.valueOf(value);
+        }
+        if (value instanceof Map<?, ?> mapValue) {
+            return serializeToJson(mapValue);
+        }
+        if (value instanceof Iterable<?> iterable) {
+            StringBuilder array = new StringBuilder("[");
+            boolean first = true;
+            for (Object item : iterable) {
+                if (!first) {
+                    array.append(',');
+                }
+                first = false;
+                array.append(toJsonValue(item));
+            }
+            array.append(']');
+            return array.toString();
+        }
+        return '\"' + escapeJson(String.valueOf(value)) + '\"';
+    }
+
+    private String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\b", "\\b")
+                .replace("\f", "\\f")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 
     private Object normalizeVariableValue(Object value) {

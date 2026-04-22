@@ -112,7 +112,7 @@ public class FormDefinitionServiceImpl implements IFormDefinitionService {
 
         List<String> invalidTypes = fields.stream()
                 .map(FormFieldDefinitionDto::getType)
-                .filter(type -> type == null || !List.of("text", "textarea", "number", "date", "select").contains(type))
+                .filter(type -> type == null || !List.of("text", "textarea", "number", "date", "select", "file").contains(type))
                 .toList();
         if (!invalidTypes.isEmpty()) {
             throw new IllegalArgumentException("El tipo de campo no es valido");
