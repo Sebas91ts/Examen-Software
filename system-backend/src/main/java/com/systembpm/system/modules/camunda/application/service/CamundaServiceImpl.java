@@ -186,15 +186,26 @@ public class CamundaServiceImpl implements CamundaService {
 
     @Override
     public Map<String, Object> completarTarea(String taskId) {
+        return completarTarea(taskId, Map.of());
+    }
+
+    @Override
+    public Map<String, Object> completarTarea(String taskId, Map<String, Object> variables) {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("El taskId es obligatorio");
         }
 
         try {
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            Map<String, Object> normalizedVariables = normalizeVariables(variables);
+            if (!normalizedVariables.isEmpty()) {
+                payload.put("variables", normalizedVariables);
+            }
+
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                     camundaBaseUrl + "/task/" + taskId + "/complete",
                     HttpMethod.POST,
-                    new HttpEntity<>(Map.of()),
+                    new HttpEntity<>(payload),
                     new ParameterizedTypeReference<>() {
                     });
             return response.getBody() != null ? response.getBody() : Map.of();
@@ -388,5 +399,50 @@ public class CamundaServiceImpl implements CamundaService {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Map<String, Object> normalizeVariables(Map<String, Object> variables) {
+        if (variables == null || variables.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> normalized = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : variables.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+
+            Object value = entry.getValue();
+            if (value == null) {
+                continue;
+            }
+
+            Map<String, Object> camundaVariable = new java.util.LinkedHashMap<>();
+            camundaVariable.put("value", normalizeVariableValue(value));
+            camundaVariable.put("type", resolveVariableType(value));
+            normalized.put(key, camundaVariable);
+        }
+        return normalized;
+    }
+
+    private Object normalizeVariableValue(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof Boolean) {
+            return value;
+        }
+        return String.valueOf(value);
+    }
+
+    private String resolveVariableType(Object value) {
+        if (value instanceof Number) {
+            return "Double";
+        }
+        if (value instanceof Boolean) {
+            return "Boolean";
+        }
+        return "String";
     }
 }
