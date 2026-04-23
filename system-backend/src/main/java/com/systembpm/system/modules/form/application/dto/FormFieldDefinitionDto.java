@@ -23,7 +23,7 @@ public class FormFieldDefinitionDto {
     private String label;
 
     @NotBlank(message = "El tipo del campo es obligatorio")
-    @Pattern(regexp = "text|textarea|number|date|select|file", message = "El tipo de campo no es valido")
+    @Pattern(regexp = "text|textarea|number|date|select|checkbox|checklist|file", message = "El tipo de campo no es valido")
     private String type;
 
     @NotNull(message = "El atributo required es obligatorio")
@@ -37,4 +37,6 @@ public class FormFieldDefinitionDto {
     private Integer order;
 
     private List<String> options;
+
+    private List<FormFieldOptionDefinitionDto> optionItems;
 }

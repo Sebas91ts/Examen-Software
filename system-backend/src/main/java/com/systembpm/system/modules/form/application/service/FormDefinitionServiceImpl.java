@@ -4,8 +4,10 @@ import com.systembpm.system.modules.form.application.dto.FormDefinitionCreateDto
 import com.systembpm.system.modules.form.application.dto.FormDefinitionResponseDto;
 import com.systembpm.system.modules.form.application.dto.FormDefinitionUpdateDto;
 import com.systembpm.system.modules.form.application.dto.FormFieldDefinitionDto;
+import com.systembpm.system.modules.form.application.dto.FormFieldOptionDefinitionDto;
 import com.systembpm.system.modules.form.domain.FormDefinition;
 import com.systembpm.system.modules.form.domain.FormFieldDefinition;
+import com.systembpm.system.modules.form.domain.FormFieldOptionDefinition;
 import com.systembpm.system.modules.form.infrastructure.repository.FormDefinitionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -112,7 +114,7 @@ public class FormDefinitionServiceImpl implements IFormDefinitionService {
 
         List<String> invalidTypes = fields.stream()
                 .map(FormFieldDefinitionDto::getType)
-                .filter(type -> type == null || !List.of("text", "textarea", "number", "date", "select", "file").contains(type))
+                .filter(type -> type == null || !List.of("text", "textarea", "number", "date", "select", "checkbox", "checklist", "file").contains(type))
                 .toList();
         if (!invalidTypes.isEmpty()) {
             throw new IllegalArgumentException("El tipo de campo no es valido");
@@ -141,6 +143,7 @@ public class FormDefinitionServiceImpl implements IFormDefinitionService {
                         .helpText(field.getHelpText())
                         .order(field.getOrder())
                         .options(field.getOptions() == null ? List.of() : field.getOptions())
+                        .optionItems(mapOptionItems(field.getOptionItems()))
                         .build())
                 .toList();
     }
@@ -172,7 +175,34 @@ public class FormDefinitionServiceImpl implements IFormDefinitionService {
                 .helpText(field.getHelpText())
                 .order(field.getOrder())
                 .options(field.getOptions())
+                .optionItems(toOptionItemDtos(field.getOptionItems()))
                 .build();
+    }
+
+    private List<FormFieldOptionDefinition> mapOptionItems(List<FormFieldOptionDefinitionDto> optionItems) {
+        if (optionItems == null || optionItems.isEmpty()) {
+            return List.of();
+        }
+
+        return optionItems.stream()
+                .map(item -> FormFieldOptionDefinition.builder()
+                        .label(item.getLabel() == null ? "" : item.getLabel().trim())
+                        .value(item.getValue() == null ? "" : item.getValue().trim())
+                        .build())
+                .toList();
+    }
+
+    private List<FormFieldOptionDefinitionDto> toOptionItemDtos(List<FormFieldOptionDefinition> optionItems) {
+        if (optionItems == null || optionItems.isEmpty()) {
+            return List.of();
+        }
+
+        return optionItems.stream()
+                .map(item -> FormFieldOptionDefinitionDto.builder()
+                        .label(item.getLabel())
+                        .value(item.getValue())
+                        .build())
+                .toList();
     }
 
     private String normalizar(String value) {

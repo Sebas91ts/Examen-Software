@@ -20,4 +20,5 @@ public class FormFieldDefinition {
     private String helpText;
     private Integer order;
     private List<String> options;
+    private List<FormFieldOptionDefinition> optionItems;
 }

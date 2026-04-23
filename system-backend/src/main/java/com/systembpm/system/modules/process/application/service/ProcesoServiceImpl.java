@@ -6,6 +6,7 @@ import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRep
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import com.systembpm.system.modules.form.domain.FormDefinition;
 import com.systembpm.system.modules.form.domain.FormFieldDefinition;
+import com.systembpm.system.modules.form.domain.FormFieldOptionDefinition;
 import com.systembpm.system.modules.form.infrastructure.repository.FormDefinitionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -239,6 +240,20 @@ public class ProcesoServiceImpl implements IProcesoService {
                         .helpText(field.getHelpText())
                         .order(field.getOrder())
                         .options(field.getOptions() == null ? List.of() : List.copyOf(field.getOptions()))
+                        .optionItems(clonarOpciones(field.getOptionItems()))
+                        .build())
+                .toList();
+    }
+
+    private List<FormFieldOptionDefinition> clonarOpciones(List<FormFieldOptionDefinition> optionItems) {
+        if (optionItems == null || optionItems.isEmpty()) {
+            return List.of();
+        }
+
+        return optionItems.stream()
+                .map(item -> FormFieldOptionDefinition.builder()
+                        .label(item.getLabel())
+                        .value(item.getValue())
                         .build())
                 .toList();
     }
