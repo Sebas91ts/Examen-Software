@@ -1,7 +1,6 @@
 package com.systembpm.system.modules.camunda.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
-import com.systembpm.system.modules.camunda.application.dto.StartProcessRequestDto;
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import com.systembpm.system.modules.security.application.service.AuthService;
 import lombok.RequiredArgsConstructor;

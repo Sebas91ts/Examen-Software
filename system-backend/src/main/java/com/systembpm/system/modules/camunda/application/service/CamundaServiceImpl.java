@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -55,6 +56,8 @@ public class CamundaServiceImpl implements CamundaService {
         if (proceso.getXml() == null || proceso.getXml().isBlank()) {
             throw new IllegalArgumentException("El proceso no contiene XML BPMN valido");
         }
+
+        validarExclusiveGateways(proceso.getXml());
 
         Path tempFile = null;
         try {
@@ -385,6 +388,85 @@ public class CamundaServiceImpl implements CamundaService {
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
         factory.setExpandEntityReferences(false);
         return factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+    }
+
+    private void validarExclusiveGateways(String xml) {
+        try {
+            Document document = parseDocument(xml);
+            NodeList gateways = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "exclusiveGateway");
+            for (int i = 0; i < gateways.getLength(); i++) {
+                Element gateway = (Element) gateways.item(i);
+                validarExclusiveGateway(document, gateway);
+            }
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("No se pudo validar el BPMN antes de desplegar", ex);
+        }
+    }
+
+    private void validarExclusiveGateway(Document document, Element gateway) {
+        String gatewayId = gateway.getAttribute("id");
+        NodeList allSequenceFlows = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "sequenceFlow");
+
+        List<Element> outgoingFlows = new ArrayList<>();
+        for (int i = 0; i < allSequenceFlows.getLength(); i++) {
+            Element sequenceFlow = (Element) allSequenceFlows.item(i);
+            if (gatewayId.equals(sequenceFlow.getAttribute("sourceRef"))) {
+                outgoingFlows.add(sequenceFlow);
+            }
+        }
+
+        if (outgoingFlows.size() <= 1) {
+            return;
+        }
+
+        String defaultFlowId = gateway.getAttribute("default");
+        Element defaultFlow = defaultFlowId == null || defaultFlowId.isBlank()
+                ? null
+                : outgoingFlows.stream()
+                        .filter(flow -> defaultFlowId.equals(flow.getAttribute("id")))
+                        .findFirst()
+                        .orElse(null);
+
+        List<String> invalidFlows = new ArrayList<>();
+        for (Element sequenceFlow : outgoingFlows) {
+            if (defaultFlow != null && defaultFlowId.equals(sequenceFlow.getAttribute("id"))) {
+                continue;
+            }
+
+            if (!hasConditionExpression(sequenceFlow)) {
+                invalidFlows.add(sequenceFlow.getAttribute("id"));
+            }
+        }
+
+        if (!invalidFlows.isEmpty()) {
+            String gatewayLabel = gatewayId == null || gatewayId.isBlank() ? "ExclusiveGateway sin id" : gatewayId;
+            if (defaultFlowId == null || defaultFlowId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Exclusive Gateway '" + gatewayLabel
+                                + "' tiene salidas sin conditionExpression ni flujo default: "
+                                + String.join(", ", invalidFlows));
+            }
+
+            throw new IllegalArgumentException(
+                    "Exclusive Gateway '" + gatewayLabel
+                            + "' tiene salidas sin conditionExpression fuera del flujo default '"
+                            + defaultFlowId + "': "
+                            + String.join(", ", invalidFlows));
+        }
+
+        if (defaultFlowId != null && !defaultFlowId.isBlank() && defaultFlow == null) {
+            throw new IllegalArgumentException(
+                    "Exclusive Gateway '" + (gatewayId == null || gatewayId.isBlank() ? "sin id" : gatewayId)
+                            + "' referencia como default al flujo '" + defaultFlowId
+                            + "', pero ese flujo no existe o no sale de ese gateway");
+        }
+    }
+
+    private boolean hasConditionExpression(Element sequenceFlow) {
+        NodeList conditions = sequenceFlow.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "conditionExpression");
+        return conditions != null && conditions.getLength() > 0;
     }
 
     private Element encontrarElementoPorId(Document document, String elementId) {

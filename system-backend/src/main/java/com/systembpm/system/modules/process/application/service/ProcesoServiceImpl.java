@@ -132,9 +132,13 @@ public class ProcesoServiceImpl implements IProcesoService {
 
     @Override
     public Proceso publicarYDesplegar(String id) {
-        Proceso publicado = publicar(id);
-        camundaService.desplegarProceso(publicado.getId());
-        return publicado;
+        log.info("Publicando y desplegando proceso BPMN con ID: {}", id);
+
+        Proceso proceso = procesoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
+
+        camundaService.desplegarProceso(proceso.getId());
+        return marcarComoPublicado(proceso);
     }
 
     @Override
@@ -283,5 +287,28 @@ public class ProcesoServiceImpl implements IProcesoService {
         if (ESTADO_PUBLICADO.equalsIgnoreCase(proceso.getEstado())) {
             throw new IllegalArgumentException("No se puede editar un proceso publicado");
         }
+    }
+
+    private Proceso marcarComoPublicado(Proceso proceso) {
+        List<Proceso> procesosMismaClave = procesoRepository.findByProcessKey(proceso.getProcessKey());
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Proceso procesoRelacionado : procesosMismaClave) {
+            if (!procesoRelacionado.getId().equals(proceso.getId())
+                    && ESTADO_PUBLICADO.equalsIgnoreCase(procesoRelacionado.getEstado())) {
+                procesoRelacionado.setEstado(ESTADO_HISTORICO);
+                procesoRelacionado.setUpdatedAt(now);
+                procesoRepository.save(procesoRelacionado);
+                log.info("Proceso BPMN previo marcado como HISTORICO. ID: {}", procesoRelacionado.getId());
+            }
+        }
+
+        proceso.setEstado(ESTADO_PUBLICADO);
+        proceso.setUpdatedAt(now);
+
+        Proceso procesoPublicado = procesoRepository.save(proceso);
+        log.info("Proceso BPMN publicado exitosamente con ID: {}", procesoPublicado.getId());
+
+        return procesoPublicado;
     }
 }
