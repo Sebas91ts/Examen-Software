@@ -39,6 +39,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/camunda/deploy/**").hasRole("ADMIN")
                 .requestMatchers("/api/camunda/start/**").hasRole("ADMIN")
                 .requestMatchers("/api/camunda/tasks/**").authenticated()
+                .requestMatchers("/api/dashboard/**").hasRole("ADMIN")
                 .requestMatchers("/error").permitAll()
                 .anyRequest().authenticated()
             )

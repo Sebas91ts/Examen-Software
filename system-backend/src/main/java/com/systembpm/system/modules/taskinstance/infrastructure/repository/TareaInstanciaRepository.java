@@ -10,6 +10,8 @@ public interface TareaInstanciaRepository extends MongoRepository<TareaInstancia
 
     List<TareaInstancia> findByEstadoIgnoreCaseOrderByCreatedAtAsc(String estado);
 
+    long countByEstadoIgnoreCase(String estado);
+
     List<TareaInstancia> findByProcessInstanceIdOrderByCreatedAtAsc(String processInstanceId);
 
     List<TareaInstancia> findByAreaIdIgnoreCaseOrderByCreatedAtAsc(String areaId);
