@@ -3,6 +3,7 @@ package com.systembpm.system.modules.camunda.infrastructure.controller;
 import com.systembpm.system.common.response.ApiResponse;
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import com.systembpm.system.modules.security.application.service.AuthService;
+import com.systembpm.system.modules.taskexecutionlog.application.service.ITaskExecutionLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +27,7 @@ public class CamundaController {
 
     private final CamundaService camundaService;
     private final AuthService authService;
+    private final ITaskExecutionLogService taskExecutionLogService;
 
     @PostMapping("/deploy/{procesoId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> deploy(@PathVariable String procesoId) {
@@ -117,6 +119,11 @@ public class CamundaController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> complete(
             @PathVariable String taskId,
             @RequestBody(required = false) Map<String, Object> body) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401).body(ApiResponse.error("No hay una sesion autenticada"));
+        }
+
         log.info("Solicitud POST /api/camunda/tasks/{}/complete", taskId);
         Map<String, Object> variables = Map.of();
         if (body != null) {
@@ -131,9 +138,13 @@ public class CamundaController {
                                 java.util.LinkedHashMap::new));
             }
         }
+
+        Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
+        Map<String, Object> response = camundaService.completarTarea(taskId, variables);
+        taskExecutionLogService.registrarEjecucion(taskSnapshot, variables, authentication.getName());
+
         return ResponseEntity.ok(
-                ApiResponse.success("Tarea completada exitosamente",
-                        camundaService.completarTarea(taskId, variables)));
+                ApiResponse.success("Tarea completada exitosamente", response));
     }
 
     @PostMapping("/tasks/{taskId}/claim")

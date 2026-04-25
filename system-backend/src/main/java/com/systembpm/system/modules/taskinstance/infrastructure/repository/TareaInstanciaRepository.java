@@ -3,6 +3,7 @@ package com.systembpm.system.modules.taskinstance.infrastructure.repository;
 import com.systembpm.system.modules.taskinstance.domain.TareaInstancia;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
+import java.util.Optional;
 import java.util.List;
 
 public interface TareaInstanciaRepository extends MongoRepository<TareaInstancia, String> {
@@ -16,4 +17,8 @@ public interface TareaInstanciaRepository extends MongoRepository<TareaInstancia
     List<TareaInstancia> findByAssignedToIgnoreCaseOrderByCreatedAtAsc(String assignedTo);
 
     List<TareaInstancia> findByNombreProcesoIgnoreCaseOrderByCreatedAtAsc(String nombreProceso);
+
+    Optional<TareaInstancia> findTopByProcessInstanceIdAndTaskDefinitionKeyOrderByCreatedAtDesc(
+            String processInstanceId,
+            String taskDefinitionKey);
 }
