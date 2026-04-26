@@ -20,4 +20,6 @@ public class ProcesoCreateDto {
 
     @NotBlank(message = "El XML BPMN es obligatorio")
     private String xml;
+
+    private String lastSavedBy;
 }

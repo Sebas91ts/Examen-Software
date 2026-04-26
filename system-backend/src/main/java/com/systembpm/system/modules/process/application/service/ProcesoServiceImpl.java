@@ -95,9 +95,38 @@ public class ProcesoServiceImpl implements IProcesoService {
         procesoExistente.setNombre(normalizarNombre(dto.getNombre()));
         procesoExistente.setXml(dto.getXml().trim());
         procesoExistente.setUpdatedAt(LocalDateTime.now());
+        procesoExistente.setLastSavedAt(procesoExistente.getUpdatedAt());
+        procesoExistente.setLastSavedBy(normalizarUsuarioGuardado(dto.getLastSavedBy()));
 
         Proceso procesoActualizado = procesoRepository.save(procesoExistente);
         log.info("Proceso BPMN actualizado exitosamente con ID: {}", procesoActualizado.getId());
+
+        return procesoActualizado;
+    }
+
+    @Override
+    public Proceso autosave(String id, ProcesoCreateDto dto) {
+        log.info("Autosave de proceso BPMN con ID: {}", id);
+
+        validarDtoAutosave(dto);
+
+        Proceso procesoExistente = procesoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Proceso no encontrado con ID: " + id));
+
+        validarEditable(procesoExistente);
+
+        if (dto.getNombre() != null && !dto.getNombre().isBlank()) {
+            procesoExistente.setNombre(normalizarNombre(dto.getNombre()));
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        procesoExistente.setXml(dto.getXml().trim());
+        procesoExistente.setUpdatedAt(now);
+        procesoExistente.setLastSavedAt(now);
+        procesoExistente.setLastSavedBy(normalizarUsuarioGuardado(dto.getLastSavedBy()));
+
+        Proceso procesoActualizado = procesoRepository.save(procesoExistente);
+        log.info("Autosave de proceso BPMN aplicado exitosamente con ID: {}", procesoActualizado.getId());
 
         return procesoActualizado;
     }
@@ -276,6 +305,28 @@ public class ProcesoServiceImpl implements IProcesoService {
         }
     }
 
+    private void validarDtoAutosave(ProcesoCreateDto dto) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Los datos del autosave son obligatorios");
+        }
+
+        if (dto.getXml() == null || dto.getXml().isBlank()) {
+            throw new IllegalArgumentException("El XML BPMN no puede estar vacio");
+        }
+
+        if (!dto.getXml().contains("<bpmn:")) {
+            throw new IllegalArgumentException("El XML proporcionado no parece ser un BPMN valido");
+        }
+    }
+
+    private String normalizarUsuarioGuardado(String lastSavedBy) {
+        if (lastSavedBy == null || lastSavedBy.isBlank()) {
+            return CREATED_BY_DEFAULT;
+        }
+
+        return lastSavedBy.trim();
+    }
+
     private String normalizarNombre(String nombre) {
         if (nombre == null || nombre.isBlank()) {
             return "Proceso sin nombre";
@@ -299,8 +350,9 @@ public class ProcesoServiceImpl implements IProcesoService {
     }
 
     private void validarEditable(Proceso proceso) {
-        if (ESTADO_PUBLICADO.equalsIgnoreCase(proceso.getEstado())) {
-            throw new IllegalArgumentException("No se puede editar un proceso publicado");
+        if (ESTADO_PUBLICADO.equalsIgnoreCase(proceso.getEstado())
+                || ESTADO_HISTORICO.equalsIgnoreCase(proceso.getEstado())) {
+            throw new IllegalArgumentException("No se puede editar un proceso publicado o historico");
         }
     }
 

@@ -18,6 +18,8 @@ public interface IProcesoService {
 
     Proceso actualizar(String id, ProcesoCreateDto dto);
 
+    Proceso autosave(String id, ProcesoCreateDto dto);
+
     Proceso publicar(String id);
 
     Proceso crearNuevaVersion(String id);

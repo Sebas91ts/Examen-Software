@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,12 +68,27 @@ public class ProcesoController {
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<Proceso>> actualizarProceso(
             @PathVariable String id,
-            @Valid @RequestBody ProcesoCreateDto dto) {
+            @Valid @RequestBody ProcesoCreateDto dto,
+            Authentication authentication) {
         log.info("Solicitud PUT /api/procesos/{} para proceso: {}", id, dto.getNombre());
+        dto.setLastSavedBy(resolveAuthenticatedUser(authentication, dto.getLastSavedBy()));
 
         Proceso procesoActualizado = procesoService.actualizar(id, dto);
 
         return ResponseEntity.ok(ApiResponse.success("Proceso BPMN actualizado exitosamente", procesoActualizado));
+    }
+
+    @PutMapping("/{id}/autosave")
+    public ResponseEntity<ApiResponse<Proceso>> autosaveProceso(
+            @PathVariable String id,
+            @RequestBody ProcesoCreateDto dto,
+            Authentication authentication) {
+        log.info("Solicitud PUT /api/procesos/{}/autosave", id);
+        dto.setLastSavedBy(resolveAuthenticatedUser(authentication, dto.getLastSavedBy()));
+
+        Proceso procesoActualizado = procesoService.autosave(id, dto);
+
+        return ResponseEntity.ok(ApiResponse.success("Proceso BPMN guardado automaticamente", procesoActualizado));
     }
 
     @PutMapping("/{id}/publicar")
@@ -89,5 +105,13 @@ public class ProcesoController {
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Nueva version del proceso creada exitosamente", nuevaVersion));
+    }
+
+    private String resolveAuthenticatedUser(Authentication authentication, String fallback) {
+        if (authentication != null && authentication.getName() != null && !authentication.getName().isBlank()) {
+            return authentication.getName();
+        }
+
+        return fallback;
     }
 }

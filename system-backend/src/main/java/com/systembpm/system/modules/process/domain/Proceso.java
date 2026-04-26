@@ -27,4 +27,6 @@ public class Proceso {
     private String processKey;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private LocalDateTime lastSavedAt;
+    private String lastSavedBy;
 }
