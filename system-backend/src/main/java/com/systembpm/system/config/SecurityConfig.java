@@ -40,6 +40,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/camunda/start/**").hasRole("ADMIN")
                 .requestMatchers("/api/camunda/tasks/**").authenticated()
                 .requestMatchers("/api/dashboard/**").hasRole("ADMIN")
+                .requestMatchers("/api/ai/**").authenticated()
                 .requestMatchers("/api/notifications/**").authenticated()
                 .requestMatchers("/ws/**").permitAll()
                 .requestMatchers("/error").permitAll()

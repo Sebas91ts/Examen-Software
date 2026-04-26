@@ -47,6 +47,9 @@ jwt:
 camunda:
   base-url: ${CAMUNDA_BASE_URL:http://localhost:8081/engine-rest}
 
+fastapi:
+  base-url: ${FASTAPI_BASE_URL:http://localhost:8000}
+
 cloudinary:
   cloud-name: ${CLOUDINARY_CLOUD_NAME:dpicsykwa}
   api-key: ${CLOUDINARY_API_KEY:753318879769954}
