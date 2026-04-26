@@ -3,6 +3,7 @@ package com.systembpm.system.modules.ai.infrastructure.controller;
 import com.systembpm.system.common.response.ApiResponse;
 import com.systembpm.system.modules.ai.application.dto.AnalysisRequestDto;
 import com.systembpm.system.modules.ai.application.dto.AssistantRequestDto;
+import com.systembpm.system.modules.ai.application.dto.EditDiagramRequestDto;
 import com.systembpm.system.modules.ai.application.dto.DiagramRequestDto;
 import com.systembpm.system.modules.ai.application.service.IAiService;
 import jakarta.validation.Valid;
@@ -38,5 +39,11 @@ public class AiController {
     public ResponseEntity<ApiResponse<?>> generateDiagram(@Valid @RequestBody DiagramRequestDto request) {
         log.info("Solicitud POST /api/ai/generate-diagram");
         return ResponseEntity.ok(aiService.generateDiagram(request));
+    }
+
+    @PostMapping("/edit-diagram")
+    public ResponseEntity<ApiResponse<?>> editDiagram(@Valid @RequestBody EditDiagramRequestDto request) {
+        log.info("Solicitud POST /api/ai/edit-diagram");
+        return ResponseEntity.ok(aiService.editDiagram(request));
     }
 }

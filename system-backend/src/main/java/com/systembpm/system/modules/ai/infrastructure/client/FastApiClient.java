@@ -6,6 +6,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -23,7 +24,21 @@ public class FastApiClient {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<Object> entity = new HttpEntity<>(request, headers);
-        return restTemplate.postForObject(url, entity, responseType);
+
+        try {
+            TResponse response = restTemplate.postForObject(url, entity, responseType);
+            if (response == null) {
+                throw new RestClientException("FastAPI devolvio una respuesta vacia");
+            }
+            return response;
+        } catch (HttpStatusCodeException ex) {
+            throw new RestClientException(
+                    "FastAPI respondio con error " + ex.getStatusCode().value() + ": " + ex.getResponseBodyAsString(),
+                    ex);
+        }
+        catch (RestClientException ex) {
+            throw ex;
+        }
     }
 
     private String normalizeBaseUrl() {

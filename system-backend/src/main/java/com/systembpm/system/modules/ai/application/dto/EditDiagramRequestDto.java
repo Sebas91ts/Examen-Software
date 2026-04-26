@@ -10,8 +10,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class DiagramRequestDto {
+public class EditDiagramRequestDto {
 
-    @NotBlank(message = "El texto es obligatorio")
-    private String text;
+    @NotBlank(message = "La instruccion es obligatoria")
+    private String instruction;
+
+    @NotBlank(message = "El XML actual es obligatorio")
+    private String currentXml;
 }

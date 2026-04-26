@@ -9,9 +9,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class DiagramTaskDto {
+public class DiagramGatewayDto {
     private String id;
     private String name;
-    private String area;
     private String type;
+    private String condition;
 }

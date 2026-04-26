@@ -9,9 +9,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class DiagramTaskDto {
-    private String id;
-    private String name;
-    private String area;
-    private String type;
+public class EditDiagramResponseDto {
+    private String xml;
+    private String message;
 }

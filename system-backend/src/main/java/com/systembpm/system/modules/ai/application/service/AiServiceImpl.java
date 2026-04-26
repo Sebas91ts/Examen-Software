@@ -16,6 +16,7 @@ import java.util.Objects;
 public class AiServiceImpl implements IAiService {
 
     private final FastApiClient fastApiClient;
+    private final BpmnGeneratorService bpmnGeneratorService;
 
     @Override
     public ApiResponse<?> assistant(AssistantRequestDto request) {
@@ -29,7 +30,32 @@ public class AiServiceImpl implements IAiService {
 
     @Override
     public ApiResponse<?> generateDiagram(DiagramRequestDto request) {
-        return execute("/ai/generate-diagram", request, DiagramResponseDto.class, "generate diagram");
+        ApiResponse<DiagramResponseDto> fastApiResponse = execute(
+                "/ai/generate-diagram",
+                request,
+                DiagramResponseDto.class,
+                "generate diagram");
+
+        if (!fastApiResponse.isSuccess() || fastApiResponse.getData() == null) {
+            return ApiResponse.error(fastApiResponse.getMessage());
+        }
+
+        BpmnGenerationResponseDto generated = bpmnGeneratorService.generate(
+                fastApiResponse.getData(),
+                null);
+
+        return ApiResponse.success("Diagrama BPMN generado exitosamente", generated);
+    }
+
+    @Override
+    public ApiResponse<?> editDiagram(EditDiagramRequestDto request) {
+        ApiResponse<EditDiagramResponseDto> response = execute("/ai/edit-diagram", request, EditDiagramResponseDto.class, "edit diagram");
+        if (!response.isSuccess() || response.getData() == null) {
+            return response;
+        }
+
+        log.info("Diagrama editado recibido desde FastAPI. xmlLength={}", response.getData().getXml() == null ? 0 : response.getData().getXml().length());
+        return response;
     }
 
     private <TResponse> ApiResponse<TResponse> execute(
@@ -48,7 +74,13 @@ public class AiServiceImpl implements IAiService {
             return ApiResponse.success("Solicitud procesada correctamente", response);
         } catch (RestClientException ex) {
             log.error("Error consumiendo FastAPI en {}", path, ex);
-            return ApiResponse.error("No se pudo comunicar con el servicio de IA");
+            String message = ex.getMessage();
+            if (message != null && message.contains("503")) {
+                return ApiResponse.error("El servicio de IA está ocupado en este momento. Intenta de nuevo en unos segundos.");
+            }
+            return ApiResponse.error(message != null && !message.isBlank()
+                    ? message
+                    : "No se pudo comunicar con el servicio de IA");
         } catch (Exception ex) {
             log.error("Error inesperado en operacion {}", operationName, ex);
             return ApiResponse.error("Ocurrio un error inesperado al procesar la solicitud de IA");
