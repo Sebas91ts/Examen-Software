@@ -56,6 +56,15 @@ public class ProcesoController {
         return ResponseEntity.ok(ApiResponse.success("Procesos obtenidos exitosamente", procesos));
     }
 
+    @GetMapping("/publicados")
+    public ResponseEntity<ApiResponse<List<Proceso>>> listarProcesosPublicados() {
+        log.info("Solicitud GET /api/procesos/publicados");
+
+        List<Proceso> procesos = procesoService.listarPublicados();
+
+        return ResponseEntity.ok(ApiResponse.success("Procesos publicados obtenidos exitosamente", procesos));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<Proceso>> obtenerProceso(@PathVariable String id) {
         log.info("Solicitud GET /api/procesos/{}", id);

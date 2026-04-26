@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.repository.MongoRepository;
  */
 public interface ProcesoRepository extends MongoRepository<Proceso, String> {
     Optional<Proceso> findByNombreIgnoreCase(String nombre);
+    List<Proceso> findByEstadoIgnoreCase(String estado);
     List<Proceso> findByProcessKeyOrderByVersionAsc(String processKey);
     Optional<Proceso> findTopByProcessKeyOrderByVersionDesc(String processKey);
     List<Proceso> findByProcessKey(String processKey);

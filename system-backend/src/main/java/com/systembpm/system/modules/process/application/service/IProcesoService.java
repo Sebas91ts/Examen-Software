@@ -14,6 +14,8 @@ public interface IProcesoService {
 
     List<Proceso> listar();
 
+    List<Proceso> listarPublicados();
+
     Proceso obtenerPorId(String id);
 
     Proceso actualizar(String id, ProcesoCreateDto dto);

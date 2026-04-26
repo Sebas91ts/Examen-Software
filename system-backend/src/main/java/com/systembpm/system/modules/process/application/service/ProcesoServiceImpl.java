@@ -74,6 +74,12 @@ public class ProcesoServiceImpl implements IProcesoService {
     }
 
     @Override
+    public List<Proceso> listarPublicados() {
+        log.info("Listando procesos BPMN publicados");
+        return procesoRepository.findByEstadoIgnoreCase(ESTADO_PUBLICADO);
+    }
+
+    @Override
     public Proceso obtenerPorId(String id) {
         log.info("Buscando proceso BPMN por ID: {}", id);
 
