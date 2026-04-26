@@ -2,6 +2,8 @@ package com.systembpm.system.modules.taskinstance.application.service;
 
 import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
+import com.systembpm.system.modules.notification.application.service.NotificationServiceImpl;
+import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
 import com.systembpm.system.modules.taskinstance.application.dto.TareaInstanciaResponseDto;
 import com.systembpm.system.modules.taskinstance.domain.TareaInstancia;
 import com.systembpm.system.modules.taskinstance.infrastructure.repository.TareaInstanciaRepository;
@@ -31,6 +33,8 @@ public class TareaInstanciaServiceImpl implements ITareaInstanciaService {
 
     private final TareaInstanciaRepository tareaInstanciaRepository;
     private final AreaRepository areaRepository;
+    private final NotificationServiceImpl notificationService;
+    private final IRealtimeEventService realtimeEventService;
 
     @Override
     public TareaInstanciaResponseDto crearPrimeraTareaDesdeInstancia(
@@ -74,6 +78,17 @@ public class TareaInstanciaServiceImpl implements ITareaInstanciaService {
                 .build();
 
         TareaInstancia guardada = tareaInstanciaRepository.save(tarea);
+        notificationService.notifyTaskAvailableForArea(
+                guardada.getAreaId(),
+                guardada.getAreaNombre(),
+                guardada.getProcessInstanceId(),
+                guardada.getId(),
+                guardada.getNombreTarea());
+        realtimeEventService.publishTaskAvailableForArea(
+                guardada.getAreaId(),
+                guardada.getProcessInstanceId(),
+                guardada.getId(),
+                guardada.getNombreTarea());
         log.info("Tarea inicial creada exitosamente con ID: {}", guardada.getId());
 
         return mapToResponseDto(guardada);

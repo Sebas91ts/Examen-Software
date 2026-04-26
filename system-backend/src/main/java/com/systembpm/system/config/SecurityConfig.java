@@ -1,4 +1,4 @@
-﻿package com.systembpm.system.config;
+package com.systembpm.system.config;
 
 import com.systembpm.system.modules.security.infrastructure.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +40,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/camunda/start/**").hasRole("ADMIN")
                 .requestMatchers("/api/camunda/tasks/**").authenticated()
                 .requestMatchers("/api/dashboard/**").hasRole("ADMIN")
+                .requestMatchers("/api/notifications/**").authenticated()
+                .requestMatchers("/ws/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .anyRequest().authenticated()
             )

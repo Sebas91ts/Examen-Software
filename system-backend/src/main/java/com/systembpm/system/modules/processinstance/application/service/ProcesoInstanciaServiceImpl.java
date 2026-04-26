@@ -5,6 +5,7 @@ import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRep
 import com.systembpm.system.modules.processinstance.application.dto.ProcesoInstanciaResponseDto;
 import com.systembpm.system.modules.processinstance.domain.ProcesoInstancia;
 import com.systembpm.system.modules.processinstance.infrastructure.repository.ProcesoInstanciaRepository;
+import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
 import com.systembpm.system.modules.taskinstance.application.service.ITareaInstanciaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
     private final ProcesoRepository procesoRepository;
     private final ProcesoInstanciaRepository procesoInstanciaRepository;
     private final ITareaInstanciaService tareaInstanciaService;
+    private final IRealtimeEventService realtimeEventService;
 
     @Override
     public ProcesoInstanciaResponseDto iniciarDesdeDefinicion(String processDefinitionId) {
@@ -65,6 +67,14 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
                 guardada.getProcessDefinitionId(),
                 guardada.getNombreProceso(),
                 definicion.getXml());
+
+        realtimeEventService.publishProcessUpdated(
+                guardada.getId(),
+                "Se inicio una nueva instancia del proceso " + guardada.getNombreProceso() + ".",
+                java.util.Map.of(
+                        "processKey", guardada.getProcessKey(),
+                        "version", guardada.getVersion(),
+                        "estado", guardada.getEstado()));
 
         return mapToResponseDto(guardada);
     }

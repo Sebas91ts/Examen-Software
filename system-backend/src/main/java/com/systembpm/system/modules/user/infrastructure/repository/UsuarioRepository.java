@@ -4,6 +4,7 @@ import com.systembpm.system.modules.user.domain.Usuario;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -21,6 +22,8 @@ public interface UsuarioRepository extends MongoRepository<Usuario, String> {
      * @return Optional con el usuario si existe, vacío si no
      */
     Optional<Usuario> findByEmail(String email);
+
+    List<Usuario> findByAreaIdAndActivoTrue(String areaId);
 
     /**
      * Verifica si existe un usuario con el email dado.

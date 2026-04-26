@@ -1,7 +1,9 @@
 package com.systembpm.system.modules.camunda.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
-import com.systembpm.system.modules.camunda.application.service.CamundaService;
+import com.systembpm.system.modules.camunda.application.service.CamundaServiceImpl;
+import com.systembpm.system.modules.notification.application.service.NotificationServiceImpl;
+import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
 import com.systembpm.system.modules.security.application.service.AuthService;
 import com.systembpm.system.modules.taskexecutionlog.application.service.ITaskExecutionLogService;
 import lombok.RequiredArgsConstructor;
@@ -25,9 +27,11 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class CamundaController {
 
-    private final CamundaService camundaService;
+    private final CamundaServiceImpl camundaService;
     private final AuthService authService;
     private final ITaskExecutionLogService taskExecutionLogService;
+    private final NotificationServiceImpl notificationService;
+    private final IRealtimeEventService realtimeEventService;
 
     @PostMapping("/deploy/{procesoId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> deploy(@PathVariable String procesoId) {
@@ -39,8 +43,10 @@ public class CamundaController {
     @PostMapping("/start/{processKey}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> start(@PathVariable String processKey) {
         log.info("Solicitud POST /api/camunda/start/{}", processKey);
+        Map<String, Object> response = camundaService.iniciarInstancia(processKey);
+        publicarEventosTareasIniciales(response);
         return ResponseEntity.ok(
-                ApiResponse.success("Instancia iniciada en Camunda exitosamente", camundaService.iniciarInstancia(processKey)));
+                ApiResponse.success("Instancia iniciada en Camunda exitosamente", response));
     }
 
     @PostMapping("/start/{processKey}/business/{businessKey}")
@@ -48,9 +54,11 @@ public class CamundaController {
             @PathVariable String processKey,
             @PathVariable String businessKey) {
         log.info("Solicitud POST /api/camunda/start/{}/business/{}", processKey, businessKey);
+        Map<String, Object> response = camundaService.iniciarInstanciaPorDefinicion(processKey, businessKey);
+        publicarEventosTareasIniciales(response);
         return ResponseEntity.ok(
                 ApiResponse.success("Instancia iniciada en Camunda exitosamente",
-                        camundaService.iniciarInstanciaPorDefinicion(processKey, businessKey)));
+                        response));
     }
 
     @GetMapping("/tasks")
@@ -142,6 +150,8 @@ public class CamundaController {
         Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
         Map<String, Object> response = camundaService.completarTarea(taskId, variables);
         taskExecutionLogService.registrarEjecucion(taskSnapshot, variables, authentication.getName());
+        notificationService.notifyTaskCompleted(taskSnapshot, authentication.getName());
+        realtimeEventService.publishTaskCompleted(taskSnapshot, authentication.getName());
 
         return ResponseEntity.ok(
                 ApiResponse.success("Tarea completada exitosamente", response));
@@ -155,8 +165,68 @@ public class CamundaController {
         }
 
         log.info("Solicitud POST /api/camunda/tasks/{}/claim por usuario {}", taskId, authentication.getName());
+        Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
+        Map<String, Object> response = camundaService.tomarTarea(taskId, authentication.getName());
+        notificationService.notifyTaskClaimed(taskSnapshot, authentication.getName());
+        realtimeEventService.publishTaskClaimed(taskSnapshot, authentication.getName());
         return ResponseEntity.ok(
-                ApiResponse.success("Tarea tomada exitosamente",
-                        camundaService.tomarTarea(taskId, authentication.getName())));
+                ApiResponse.success("Tarea tomada exitosamente", response));
+    }
+
+    private void publicarEventosTareasIniciales(Map<String, Object> startResponse) {
+        String processInstanceId = extractProcessInstanceId(startResponse);
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            log.warn("No se pudo publicar eventos iniciales porque la respuesta de inicio no contiene processInstanceId");
+            return;
+        }
+
+        List<Map<String, Object>> tareasIniciales = camundaService.listarTareasTodas().stream()
+                .filter(tarea -> processInstanceId.equals(String.valueOf(tarea.get("processInstanceId"))))
+                .toList();
+
+        log.info("Se encontraron {} tareas iniciales para processInstanceId={}", tareasIniciales.size(), processInstanceId);
+
+        for (Map<String, Object> tarea : tareasIniciales) {
+            String areaId = stringValue(tarea.get("areaId"));
+            String areaNombre = stringValue(tarea.get("areaNombre"));
+            String taskId = stringValue(tarea.get("id"));
+            String taskName = resolveTaskName(tarea);
+
+            notificationService.notifyTaskAvailableForArea(areaId, areaNombre, processInstanceId, taskId, taskName);
+            realtimeEventService.publishTaskCreated(tarea);
+        }
+    }
+
+    private String extractProcessInstanceId(Map<String, Object> startResponse) {
+        if (startResponse == null || startResponse.isEmpty()) {
+            return null;
+        }
+
+        String processInstanceId = stringValue(startResponse.get("processInstanceId"));
+        if (processInstanceId != null && !processInstanceId.isBlank()) {
+            return processInstanceId.trim();
+        }
+
+        processInstanceId = stringValue(startResponse.get("id"));
+        return processInstanceId != null ? processInstanceId.trim() : null;
+    }
+
+    private String resolveTaskName(Map<String, Object> tarea) {
+        String name = stringValue(tarea.get("name"));
+        if (name != null && !name.isBlank()) {
+            return name.trim();
+        }
+
+        name = stringValue(tarea.get("nombreTarea"));
+        if (name != null && !name.isBlank()) {
+            return name.trim();
+        }
+
+        name = stringValue(tarea.get("taskDefinitionKey"));
+        return name != null && !name.isBlank() ? name.trim() : "Tarea sin nombre";
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

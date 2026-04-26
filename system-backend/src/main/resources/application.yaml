@@ -60,6 +60,9 @@ spring:
   config:
     activate:
       on-profile: dev
+  devtools:
+    restart:
+      enabled: false
 
   data:
     mongodb:
