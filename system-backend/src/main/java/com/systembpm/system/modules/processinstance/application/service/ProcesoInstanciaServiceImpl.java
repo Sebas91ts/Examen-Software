@@ -1,5 +1,6 @@
 package com.systembpm.system.modules.processinstance.application.service;
 
+import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
 import com.systembpm.system.modules.processinstance.application.dto.ProcesoInstanciaResponseDto;
@@ -7,6 +8,10 @@ import com.systembpm.system.modules.processinstance.domain.ProcesoInstancia;
 import com.systembpm.system.modules.processinstance.infrastructure.repository.ProcesoInstanciaRepository;
 import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
 import com.systembpm.system.modules.taskinstance.application.service.ITareaInstanciaService;
+import com.systembpm.system.modules.taskexecutionlog.domain.TaskExecutionLog;
+import com.systembpm.system.modules.taskexecutionlog.infrastructure.repository.TaskExecutionLogRepository;
+import com.systembpm.system.modules.taskinstance.domain.TareaInstancia;
+import com.systembpm.system.modules.taskinstance.infrastructure.repository.TareaInstanciaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,6 +23,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import org.xml.sax.InputSource;
 
@@ -35,6 +41,9 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
     private final ProcesoInstanciaRepository procesoInstanciaRepository;
     private final ITareaInstanciaService tareaInstanciaService;
     private final IRealtimeEventService realtimeEventService;
+    private final CamundaService camundaService;
+    private final TaskExecutionLogRepository taskExecutionLogRepository;
+    private final TareaInstanciaRepository tareaInstanciaRepository;
 
     @Override
     public ProcesoInstanciaResponseDto iniciarDesdeDefinicion(String processDefinitionId) {
@@ -81,20 +90,21 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
 
     @Override
     public List<ProcesoInstanciaResponseDto> listar() {
-        log.info("Listando instancias de proceso BPMN");
-        return procesoInstanciaRepository.findAll().stream()
-                .map(this::mapToResponseDto)
+        log.info("Listando instancias de proceso BPMN desde Camunda");
+        List<Map<String, Object>> activeInstances = camundaService.listarInstanciasProcesoActivas();
+        List<TaskExecutionLog> logs = taskExecutionLogRepository.findAll();
+        List<TareaInstancia> localTasks = tareaInstanciaRepository.findAll();
+
+        return activeInstances.stream()
+                .map(instance -> mapToResponseDto(instance, logs, localTasks))
                 .toList();
     }
 
     @Override
     public ProcesoInstanciaResponseDto obtenerPorId(String id) {
-        log.info("Buscando instancia de proceso BPMN por ID: {}", id);
-
-        ProcesoInstancia instancia = procesoInstanciaRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Instancia de proceso no encontrada con ID: " + id));
-
-        return mapToResponseDto(instancia);
+        log.info("Buscando instancia de proceso BPMN en Camunda por ID: {}", id);
+        Map<String, Object> instance = camundaService.obtenerInstanciaProceso(id);
+        return mapToResponseDto(instance, taskExecutionLogRepository.findAll(), tareaInstanciaRepository.findAll());
     }
 
     private void validarDefinicionPublicada(Proceso definicion) {
@@ -148,5 +158,82 @@ public class ProcesoInstanciaServiceImpl implements IProcesoInstanciaService {
                 .startedAt(instancia.getStartedAt())
                 .finishedAt(instancia.getFinishedAt())
                 .build();
+    }
+
+    private ProcesoInstanciaResponseDto mapToResponseDto(
+            Map<String, Object> instance,
+            List<TaskExecutionLog> logs,
+            List<TareaInstancia> localTasks) {
+        String processInstanceId = stringValue(instance.get("id"));
+        String processDefinitionId = stringValue(instance.get("processDefinitionId"));
+        String processKey = stringValue(instance.get("processKey"));
+        Integer version = integerValue(instance.get("processVersion"));
+
+        return ProcesoInstanciaResponseDto.builder()
+                .id(processInstanceId)
+                .processDefinitionId(processDefinitionId)
+                .processKey(processKey)
+                .version(version)
+                .nombreProceso(stringValue(instance.get("nombreProceso")))
+                .estado(stringValue(instance.get("estado")))
+                .currentElementId(stringValue(instance.get("activityId")))
+                .iniciadoPor(resolveStartedBy(processInstanceId, logs))
+                .startedAt(resolveStartedAt(processInstanceId, logs, localTasks))
+                .finishedAt(null)
+                .build();
+    }
+
+    private String resolveStartedBy(String processInstanceId, List<TaskExecutionLog> logs) {
+        return logs.stream()
+                .filter(item -> processInstanceId.equals(item.getProcessInstanceId()))
+                .map(TaskExecutionLog::getCompletedBy)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(INICIADO_POR_DEFAULT);
+    }
+
+    private LocalDateTime resolveStartedAt(
+            String processInstanceId,
+            List<TaskExecutionLog> logs,
+            List<TareaInstancia> localTasks) {
+        LocalDateTime fromLocalTask = localTasks.stream()
+                .filter(item -> processInstanceId.equals(item.getProcessInstanceId()))
+                .map(TareaInstancia::getCreatedAt)
+                .filter(java.util.Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
+
+        if (fromLocalTask != null) {
+            return fromLocalTask;
+        }
+
+        LocalDateTime fromHistoryCreation = logs.stream()
+                .filter(item -> processInstanceId.equals(item.getProcessInstanceId()))
+                .map(item -> item.getCreatedAt() != null ? item.getCreatedAt() : item.getCompletedAt())
+                .filter(java.util.Objects::nonNull)
+                .min(LocalDateTime::compareTo)
+                .orElse(null);
+
+        return fromHistoryCreation;
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Integer integerValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+
+        if (value == null) {
+            return null;
+        }
+
+        try {
+            return Integer.valueOf(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

@@ -124,6 +124,45 @@ public class CamundaServiceImpl implements CamundaService {
     }
 
     @Override
+    public List<Map<String, Object>> listarInstanciasProcesoActivas() {
+        try {
+            ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/process-instance",
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    new ParameterizedTypeReference<>() {
+                    });
+
+            List<Map<String, Object>> instancias = response.getBody() != null ? response.getBody() : List.of();
+            return instancias.stream()
+                    .map(this::enriquecerInstanciaProceso)
+                    .toList();
+        } catch (HttpStatusCodeException ex) {
+            throw new IllegalArgumentException("Camunda rechazo la consulta de instancias activas: " + ex.getResponseBodyAsString(), ex);
+        }
+    }
+
+    @Override
+    public Map<String, Object> obtenerInstanciaProceso(String processInstanceId) {
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            throw new IllegalArgumentException("El processInstanceId es obligatorio");
+        }
+
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/process-instance/" + processInstanceId,
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    new ParameterizedTypeReference<>() {
+                    });
+
+            return enriquecerInstanciaProceso(response.getBody() != null ? response.getBody() : Map.of());
+        } catch (HttpStatusCodeException ex) {
+            throw new IllegalArgumentException("Camunda rechazo la consulta de la instancia: " + ex.getResponseBodyAsString(), ex);
+        }
+    }
+
+    @Override
     public List<Map<String, Object>> listarTareas() {
         return listarTareasTodas();
     }
@@ -285,6 +324,26 @@ public class CamundaServiceImpl implements CamundaService {
         return enriquecida;
     }
 
+    private Map<String, Object> enriquecerInstanciaProceso(Map<String, Object> instancia) {
+        if (instancia == null || instancia.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> enriquecida = new java.util.LinkedHashMap<>(instancia);
+        String processDefinitionId = stringValue(instancia.get("definitionId"));
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            processDefinitionId = stringValue(instancia.get("processDefinitionId"));
+        }
+
+        String processKey = extraerProcessKey(processDefinitionId);
+        enriquecida.put("processDefinitionId", processDefinitionId);
+        enriquecida.put("processKey", processKey);
+        enriquecida.put("processVersion", extraerProcessVersion(processDefinitionId));
+        enriquecida.put("nombreProceso", resolverNombreProceso(processKey));
+        enriquecida.put("estado", "ACTIVA");
+        return enriquecida;
+    }
+
     private String resolverNombreProceso(String processKey) {
         if (processKey == null || processKey.isBlank()) {
             return "Proceso no identificado";
@@ -379,6 +438,23 @@ public class CamundaServiceImpl implements CamundaService {
         }
 
         return processDefinitionId.substring(0, separatorIndex).trim();
+    }
+
+    private Integer extraerProcessVersion(String processDefinitionId) {
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            return null;
+        }
+
+        String[] parts = processDefinitionId.split(":");
+        if (parts.length < 2) {
+            return null;
+        }
+
+        try {
+            return Integer.valueOf(parts[1].trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private Document parseDocument(String xml) throws Exception {

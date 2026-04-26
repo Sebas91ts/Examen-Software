@@ -6,7 +6,6 @@ import com.systembpm.system.modules.dashboard.application.dto.DashboardRecentTas
 import com.systembpm.system.modules.dashboard.application.dto.DashboardSummaryResponseDto;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
-import com.systembpm.system.modules.processinstance.infrastructure.repository.ProcesoInstanciaRepository;
 import com.systembpm.system.modules.taskexecutionlog.domain.TaskExecutionLog;
 import com.systembpm.system.modules.taskexecutionlog.infrastructure.repository.TaskExecutionLogRepository;
 import com.systembpm.system.modules.taskinstance.infrastructure.repository.TareaInstanciaRepository;
@@ -33,9 +32,9 @@ public class DashboardServiceImpl implements IDashboardService {
     private static final String ESTADO_PENDIENTE = "PENDIENTE";
     private static final int LIMITE_ULTIMOS_LOGS = 10;
     private static final long CAMUNDA_TIMEOUT_SECONDS = 4L;
+    private static final long CAMUNDA_INSTANCES_TIMEOUT_SECONDS = 4L;
 
     private final ProcesoRepository procesoRepository;
-    private final ProcesoInstanciaRepository procesoInstanciaRepository;
     private final TaskExecutionLogRepository taskExecutionLogRepository;
     private final TareaInstanciaRepository tareaInstanciaRepository;
     private final CamundaService camundaService;
@@ -50,11 +49,7 @@ public class DashboardServiceImpl implements IDashboardService {
                 .filter(estado -> ESTADO_PUBLICADO.equalsIgnoreCase(estado))
                 .count();
 
-        long totalInstanciasActivas = procesoInstanciaRepository.findAll().stream()
-                .map(instancia -> instancia.getEstado())
-                .filter(Objects::nonNull)
-                .filter(estado -> ESTADO_ACTIVA.equalsIgnoreCase(estado))
-                .count();
+        long totalInstanciasActivas = obtenerTotalInstanciasActivas();
 
         long totalTareasPendientes = obtenerTotalTareasPendientes();
 
@@ -96,6 +91,32 @@ public class DashboardServiceImpl implements IDashboardService {
         } catch (Exception ex) {
             log.warn("No se pudo obtener totalTareasPendientes ni desde Camunda ni desde fallback local", ex);
             return tareaInstanciaRepository.countByEstadoIgnoreCase(ESTADO_PENDIENTE);
+        }
+    }
+
+    private long obtenerTotalInstanciasActivas() {
+        try {
+            return CompletableFuture
+                    .supplyAsync(() -> (long) camundaService.listarInstanciasProcesoActivas().size())
+                    .orTimeout(CAMUNDA_INSTANCES_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        log.warn("No se pudo consultar Camunda para totalInstanciasActivas. Se usara fallback local por logs.", ex);
+                        return taskExecutionLogRepository.findAll().stream()
+                                .map(TaskExecutionLog::getProcessInstanceId)
+                                .filter(Objects::nonNull)
+                                .filter(id -> !id.isBlank())
+                                .distinct()
+                                .count();
+                    })
+                    .join();
+        } catch (Exception ex) {
+            log.warn("No se pudo obtener totalInstanciasActivas desde Camunda ni desde fallback local", ex);
+            return taskExecutionLogRepository.findAll().stream()
+                    .map(TaskExecutionLog::getProcessInstanceId)
+                    .filter(Objects::nonNull)
+                    .filter(id -> !id.isBlank())
+                    .distinct()
+                    .count();
         }
     }
 
