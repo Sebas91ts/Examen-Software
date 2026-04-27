@@ -2,6 +2,7 @@ package com.systembpm.system.modules.camunda.application.service;
 
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
+import com.systembpm.system.modules.bpmn.application.service.BpmnXmlSanitizerService;
 import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
 import com.systembpm.system.modules.security.application.service.AuthService;
@@ -44,6 +45,7 @@ public class CamundaServiceImpl implements CamundaService {
     private final ProcesoRepository procesoRepository;
     private final AreaRepository areaRepository;
     private final AuthService authService;
+    private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
 
     @Value("${camunda.base-url}")
     private String camundaBaseUrl;
@@ -53,16 +55,17 @@ public class CamundaServiceImpl implements CamundaService {
         Proceso proceso = procesoRepository.findById(procesoId)
                 .orElseThrow(() -> new IllegalArgumentException("Proceso no encontrado con ID: " + procesoId));
 
-        if (proceso.getXml() == null || proceso.getXml().isBlank()) {
+        String xmlSanitizado = bpmnXmlSanitizerService.sanitize(proceso.getXml());
+        if (xmlSanitizado == null || xmlSanitizado.isBlank()) {
             throw new IllegalArgumentException("El proceso no contiene XML BPMN valido");
         }
 
-        validarExclusiveGateways(proceso.getXml());
+        validarExclusiveGateways(xmlSanitizado);
 
         Path tempFile = null;
         try {
             tempFile = Files.createTempFile("bpmn-" + proceso.getId(), ".bpmn");
-            Files.writeString(tempFile, proceso.getXml(), StandardCharsets.UTF_8);
+            Files.writeString(tempFile, xmlSanitizado, StandardCharsets.UTF_8);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -110,6 +113,31 @@ public class CamundaServiceImpl implements CamundaService {
             Map<String, Object> body = businessKey == null || businessKey.isBlank()
                     ? Map.of()
                     : Map.of("businessKey", businessKey);
+
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/process-definition/key/" + processKey + "/start",
+                    HttpMethod.POST,
+                    new HttpEntity<>(body),
+                    new ParameterizedTypeReference<>() {
+                    });
+            return response.getBody() != null ? response.getBody() : Map.of();
+        } catch (HttpStatusCodeException ex) {
+            throw new IllegalArgumentException("Camunda rechazo el inicio de instancia: " + ex.getResponseBodyAsString(), ex);
+        }
+    }
+
+    @Override
+    public Map<String, Object> iniciarInstanciaConVariables(String processKey, Map<String, Object> variables) {
+        if (processKey == null || processKey.isBlank()) {
+            throw new IllegalArgumentException("El processKey es obligatorio");
+        }
+
+        try {
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            Map<String, Object> normalizedVariables = normalizeVariables(variables);
+            if (!normalizedVariables.isEmpty()) {
+                body.put("variables", normalizedVariables);
+            }
 
             ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                     camundaBaseUrl + "/process-definition/key/" + processKey + "/start",

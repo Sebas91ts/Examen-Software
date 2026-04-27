@@ -8,9 +8,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * DTO para actualizar un usuario existente.
- * La contraseña es opcional.
+ * La contrasena es opcional.
  */
 @Data
 @Builder
@@ -27,10 +29,12 @@ public class UsuarioUpdateDto {
     private String apellido;
 
     @NotBlank(message = "El email es obligatorio")
-    @Email(message = "El email debe tener un formato válido")
+    @Email(message = "El email debe tener un formato valido")
     private String email;
 
     private String password;
 
     private String areaId;
+
+    private List<String> roles;
 }

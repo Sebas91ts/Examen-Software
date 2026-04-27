@@ -20,9 +20,11 @@ public class Proceso {
     private String id;
 
     private String nombre;
+    private String descripcion;
     private String xml;
     private Integer version;
-    private String estado; 
+    private String estado;
+    private boolean clientStartEnabled = false;
     private String createdBy;
     private String processKey;
     private LocalDateTime createdAt;

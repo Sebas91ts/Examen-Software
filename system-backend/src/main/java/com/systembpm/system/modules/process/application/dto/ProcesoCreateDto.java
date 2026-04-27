@@ -18,8 +18,12 @@ public class ProcesoCreateDto {
     @NotBlank(message = "El nombre del proceso es obligatorio")
     private String nombre;
 
+    private String descripcion;
+
     @NotBlank(message = "El XML BPMN es obligatorio")
     private String xml;
+
+    private Boolean clientStartEnabled;
 
     private String lastSavedBy;
 }

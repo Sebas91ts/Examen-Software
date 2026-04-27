@@ -10,6 +10,8 @@ import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -42,6 +44,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
         Usuario usuario = usuarioMapper.toEntity(dto);
         usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
         asignarAreaSiCorresponde(usuario, dto.getAreaId());
+        aplicarRolesPermitidos(usuario, dto.getRoles(), false);
 
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
         log.info("Usuario registrado exitosamente con ID: {}", usuarioGuardado.getId());
@@ -84,6 +87,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
         usuario.setApellido(dto.getApellido());
         usuario.setEmail(dto.getEmail());
         asignarAreaSiCorresponde(usuario, dto.getAreaId());
+        aplicarRolesPermitidos(usuario, dto.getRoles(), true);
 
         if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
             if (dto.getPassword().length() < 6) {
@@ -137,5 +141,42 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
         usuario.setAreaId(area.getId());
         usuario.setAreaNombre(area.getNombre());
+    }
+
+    private void aplicarRolesPermitidos(Usuario usuario, List<String> requestedRoles, boolean allowRoleChanges) {
+        List<String> sanitizedRoles = sanitizeRoles(requestedRoles);
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdmin = authentication != null
+                && authentication.isAuthenticated()
+                && authentication.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));
+
+        if (!allowRoleChanges) {
+            if (isAdmin) {
+                usuario.setRoles(sanitizedRoles.isEmpty() ? List.of("ROLE_USER") : sanitizedRoles);
+            } else {
+                usuario.setRoles(List.of("ROLE_USER"));
+            }
+            return;
+        }
+
+        if (sanitizedRoles.isEmpty()) {
+            return;
+        }
+
+        usuario.setRoles(isAdmin ? sanitizedRoles : List.of("ROLE_USER"));
+    }
+
+    private List<String> sanitizeRoles(List<String> requestedRoles) {
+        if (requestedRoles == null || requestedRoles.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> allowedRoles = List.of("ROLE_USER", "ROLE_CLIENT", "ROLE_BPM_MANAGER", "ROLE_ADMIN");
+        return requestedRoles.stream()
+                .filter(role -> role != null && allowedRoles.contains(role.trim()))
+                .map(String::trim)
+                .distinct()
+                .toList();
     }
 }

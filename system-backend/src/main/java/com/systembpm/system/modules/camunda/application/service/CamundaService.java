@@ -10,6 +10,8 @@ public interface CamundaService {
 
     Map<String, Object> iniciarInstanciaPorDefinicion(String processKey, String businessKey);
 
+    Map<String, Object> iniciarInstanciaConVariables(String processKey, Map<String, Object> variables);
+
     List<Map<String, Object>> listarInstanciasProcesoActivas();
 
     Map<String, Object> obtenerInstanciaProceso(String processInstanceId);

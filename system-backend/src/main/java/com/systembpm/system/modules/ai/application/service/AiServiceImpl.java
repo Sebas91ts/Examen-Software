@@ -1,6 +1,7 @@
 package com.systembpm.system.modules.ai.application.service;
 
 import com.systembpm.system.common.response.ApiResponse;
+import com.systembpm.system.modules.bpmn.application.service.BpmnXmlSanitizerService;
 import com.systembpm.system.modules.ai.application.dto.*;
 import com.systembpm.system.modules.ai.infrastructure.client.FastApiClient;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +17,7 @@ public class AiServiceImpl implements IAiService {
     private final FastApiClient fastApiClient;
     private final BpmnGeneratorService bpmnGeneratorService;
     private final ProcessAiAnalysisService processAiAnalysisService;
+    private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
 
     @Override
     public ApiResponse<?> assistant(AssistantRequestDto request) {
@@ -53,6 +55,9 @@ public class AiServiceImpl implements IAiService {
             return response;
         }
 
+        if (response.getData().getXml() != null) {
+            response.getData().setXml(bpmnXmlSanitizerService.sanitize(response.getData().getXml()));
+        }
         log.info("Diagrama editado recibido desde FastAPI. xmlLength={}", response.getData().getXml() == null ? 0 : response.getData().getXml().length());
         return response;
     }

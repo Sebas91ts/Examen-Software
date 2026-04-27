@@ -8,9 +8,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * DTO para crear un nuevo usuario.
- * Contiene los datos que el frontend envía al registrar un usuario.
+ * Contiene los datos que el frontend envia al registrar un usuario.
  */
 @Data
 @Builder
@@ -27,12 +29,14 @@ public class UsuarioCreateDto {
     private String apellido;
 
     @NotBlank(message = "El email es obligatorio")
-    @Email(message = "El email debe tener un formato válido")
+    @Email(message = "El email debe tener un formato valido")
     private String email;
 
-    @NotBlank(message = "La contraseña es obligatoria")
-    @Size(min = 6, max = 100, message = "La contraseña debe tener al menos 6 caracteres")
+    @NotBlank(message = "La contrasena es obligatoria")
+    @Size(min = 6, max = 100, message = "La contrasena debe tener al menos 6 caracteres")
     private String password;
 
     private String areaId;
+
+    private List<String> roles;
 }

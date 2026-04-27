@@ -3,6 +3,7 @@ package com.systembpm.system.modules.process.application.service;
 import com.systembpm.system.modules.process.application.dto.ProcesoCreateDto;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
+import com.systembpm.system.modules.bpmn.application.service.BpmnXmlSanitizerService;
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
 import com.systembpm.system.modules.form.domain.FormDefinition;
 import com.systembpm.system.modules.form.domain.FormFieldDefinition;
@@ -13,9 +14,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.text.Normalizer;
+import java.io.StringReader;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
 
 /**
  * Implementacion del servicio de procesos BPMN.
@@ -33,6 +41,7 @@ public class ProcesoServiceImpl implements IProcesoService {
     private final ProcesoRepository procesoRepository;
     private final CamundaService camundaService;
     private final FormDefinitionRepository formDefinitionRepository;
+    private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
 
     @Override
     public Proceso guardar(ProcesoCreateDto dto) {
@@ -52,9 +61,11 @@ public class ProcesoServiceImpl implements IProcesoService {
 
         Proceso proceso = Proceso.builder()
                 .nombre(nombreNormalizado)
-                .xml(dto.getXml().trim())
+                .descripcion(normalizarDescripcion(dto.getDescripcion()))
+                .xml(sanitizarXml(dto.getXml()))
                 .version(1)
                 .estado(ESTADO_BORRADOR)
+                .clientStartEnabled(resolverClientStartEnabled(dto.getClientStartEnabled(), dto.getXml()))
                 .createdBy(CREATED_BY_DEFAULT)
                 .processKey(processKey)
                 .createdAt(LocalDateTime.now())
@@ -99,7 +110,9 @@ public class ProcesoServiceImpl implements IProcesoService {
         validarEditable(procesoExistente);
 
         procesoExistente.setNombre(normalizarNombre(dto.getNombre()));
-        procesoExistente.setXml(dto.getXml().trim());
+        procesoExistente.setDescripcion(normalizarDescripcion(dto.getDescripcion()));
+        procesoExistente.setXml(sanitizarXml(dto.getXml()));
+        procesoExistente.setClientStartEnabled(resolverClientStartEnabled(dto.getClientStartEnabled(), dto.getXml()));
         procesoExistente.setUpdatedAt(LocalDateTime.now());
         procesoExistente.setLastSavedAt(procesoExistente.getUpdatedAt());
         procesoExistente.setLastSavedBy(normalizarUsuarioGuardado(dto.getLastSavedBy()));
@@ -126,7 +139,11 @@ public class ProcesoServiceImpl implements IProcesoService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        procesoExistente.setXml(dto.getXml().trim());
+        if (dto.getDescripcion() != null) {
+            procesoExistente.setDescripcion(normalizarDescripcion(dto.getDescripcion()));
+        }
+        procesoExistente.setXml(sanitizarXml(dto.getXml()));
+        procesoExistente.setClientStartEnabled(resolverClientStartEnabled(dto.getClientStartEnabled(), dto.getXml()));
         procesoExistente.setUpdatedAt(now);
         procesoExistente.setLastSavedAt(now);
         procesoExistente.setLastSavedBy(normalizarUsuarioGuardado(dto.getLastSavedBy()));
@@ -198,9 +215,11 @@ public class ProcesoServiceImpl implements IProcesoService {
                         procesoOrigen.getNombre() != null && !procesoOrigen.getNombre().isBlank()
                                 ? procesoOrigen.getNombre()
                                 : processKey))
-                .xml(procesoOrigen.getXml())
+                .descripcion(procesoOrigen.getDescripcion())
+                .xml(sanitizarXml(procesoOrigen.getXml()))
                 .version(ultimaVersion + 1)
                 .estado(ESTADO_BORRADOR)
+                .clientStartEnabled(procesoOrigen.isClientStartEnabled())
                 .createdBy(CREATED_BY_DEFAULT)
                 .processKey(processKey)
                 .createdAt(LocalDateTime.now())
@@ -333,12 +352,25 @@ public class ProcesoServiceImpl implements IProcesoService {
         return lastSavedBy.trim();
     }
 
+    private String sanitizarXml(String xml) {
+        return bpmnXmlSanitizerService.sanitize(xml == null ? null : xml.trim());
+    }
+
     private String normalizarNombre(String nombre) {
         if (nombre == null || nombre.isBlank()) {
             return "Proceso sin nombre";
         }
 
         return nombre.trim().replaceAll("\\s+", " ");
+    }
+
+    private String normalizarDescripcion(String descripcion) {
+        if (descripcion == null) {
+            return null;
+        }
+
+        String cleaned = descripcion.trim().replaceAll("\\s+", " ");
+        return cleaned.isBlank() ? null : cleaned;
     }
 
     private String generarProcessKey(String nombre) {
@@ -360,6 +392,145 @@ public class ProcesoServiceImpl implements IProcesoService {
                 || ESTADO_HISTORICO.equalsIgnoreCase(proceso.getEstado())) {
             throw new IllegalArgumentException("No se puede editar un proceso publicado o historico");
         }
+    }
+
+    private boolean resolverClientStartEnabled(Boolean requestedValue, String xml) {
+        if (requestedValue != null) {
+            return Boolean.TRUE.equals(requestedValue);
+        }
+
+        return detectarPrimerPasoCliente(xml);
+    }
+
+    private boolean detectarPrimerPasoCliente(String xml) {
+        if (xml == null || xml.isBlank()) {
+            return false;
+        }
+
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setExpandEntityReferences(false);
+
+            Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+            String firstInteractiveNodeId = encontrarPrimerNodoInteractivoDesdeStart(document);
+            if (firstInteractiveNodeId == null || firstInteractiveNodeId.isBlank()) {
+                return false;
+            }
+
+            String taskId = firstInteractiveNodeId.trim();
+            Element firstUserTask = encontrarElementoPorId(document, taskId);
+            if (firstUserTask == null) {
+                return false;
+            }
+
+            String localName = firstUserTask.getLocalName();
+            if (localName == null || !esNodoTarea(localName)) {
+                return false;
+            }
+
+            if (taskId == null || taskId.isBlank()) {
+                return false;
+            }
+
+            NodeList lanes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "lane");
+            for (int i = 0; i < lanes.getLength(); i++) {
+                Element lane = (Element) lanes.item(i);
+                if (!laneContieneNodo(lane, taskId.trim())) {
+                    continue;
+                }
+
+                String laneName = lane.getAttribute("name");
+                return laneName != null && laneName.trim().equalsIgnoreCase("Cliente");
+            }
+        } catch (Exception ex) {
+            log.warn("No se pudo determinar clientStartEnabled automaticamente", ex);
+        }
+
+        return false;
+    }
+
+    private String encontrarPrimerNodoInteractivoDesdeStart(Document document) {
+        NodeList startEvents = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "startEvent");
+        if (startEvents.getLength() == 0) {
+            return null;
+        }
+
+        Element startEvent = (Element) startEvents.item(0);
+        String startEventId = startEvent.getAttribute("id");
+        if (startEventId == null || startEventId.isBlank()) {
+            return null;
+        }
+
+        String currentNodeId = encontrarSiguienteNodoDesde(document, startEventId.trim());
+        int safetyCounter = 0;
+        while (currentNodeId != null && safetyCounter < 25) {
+            Element currentElement = encontrarElementoPorId(document, currentNodeId.trim());
+            if (currentElement == null) {
+                return currentNodeId.trim();
+            }
+
+            String localName = currentElement.getLocalName();
+            if (localName != null && esNodoTarea(localName)) {
+                return currentNodeId.trim();
+            }
+
+            if ("exclusiveGateway".equals(localName) || "parallelGateway".equals(localName) || "inclusiveGateway".equals(localName)) {
+                currentNodeId = encontrarSiguienteNodoDesde(document, currentNodeId.trim());
+                safetyCounter++;
+                continue;
+            }
+
+            currentNodeId = encontrarSiguienteNodoDesde(document, currentNodeId.trim());
+            safetyCounter++;
+        }
+
+        return null;
+    }
+
+    private String encontrarSiguienteNodoDesde(Document document, String sourceNodeId) {
+        NodeList sequenceFlows = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "sequenceFlow");
+        for (int i = 0; i < sequenceFlows.getLength(); i++) {
+            Element flow = (Element) sequenceFlows.item(i);
+            String sourceRef = flow.getAttribute("sourceRef");
+            if (sourceNodeId.equals(sourceRef != null ? sourceRef.trim() : null)) {
+                String targetRef = flow.getAttribute("targetRef");
+                if (targetRef != null && !targetRef.isBlank()) {
+                    return targetRef.trim();
+                }
+            }
+        }
+        return null;
+    }
+
+    private Element encontrarElementoPorId(Document document, String elementId) {
+        NodeList allNodes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "*");
+        for (int i = 0; i < allNodes.getLength(); i++) {
+            Element element = (Element) allNodes.item(i);
+            if (elementId.equals(element.getAttribute("id"))) {
+                return element;
+            }
+        }
+        return null;
+    }
+
+    private boolean esNodoTarea(String localName) {
+        return "task".equals(localName)
+                || "userTask".equals(localName)
+                || localName.endsWith("Task");
+    }
+
+    private boolean laneContieneNodo(Element laneElement, String nodeId) {
+        NodeList flowNodeRefs = laneElement.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "flowNodeRef");
+        for (int i = 0; i < flowNodeRefs.getLength(); i++) {
+            String ref = flowNodeRefs.item(i).getTextContent();
+            if (nodeId.equals(ref != null ? ref.trim() : null)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Proceso marcarComoPublicado(Proceso proceso) {
