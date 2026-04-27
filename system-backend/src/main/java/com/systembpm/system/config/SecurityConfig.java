@@ -42,6 +42,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/camunda/start/**").authenticated()
                 .requestMatchers("/api/camunda/tasks/**").authenticated()
                 .requestMatchers("/api/dashboard/**").hasRole("ADMIN")
+                .requestMatchers("/api/ai/analyze-process").hasAnyRole("ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/analyses/**").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/**").authenticated()
                 .requestMatchers("/api/notifications/**").authenticated()
                 .requestMatchers("/ws/**").permitAll()

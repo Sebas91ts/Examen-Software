@@ -8,8 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 
-import java.util.Objects;
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -17,6 +15,7 @@ public class AiServiceImpl implements IAiService {
 
     private final FastApiClient fastApiClient;
     private final BpmnGeneratorService bpmnGeneratorService;
+    private final ProcessAiAnalysisService processAiAnalysisService;
 
     @Override
     public ApiResponse<?> assistant(AssistantRequestDto request) {
@@ -56,6 +55,40 @@ public class AiServiceImpl implements IAiService {
 
         log.info("Diagrama editado recibido desde FastAPI. xmlLength={}", response.getData().getXml() == null ? 0 : response.getData().getXml().length());
         return response;
+    }
+
+    @Override
+    public ApiResponse<?> analyzeProcess(ProcessAnalysisRequestDto request) {
+        try {
+            return ApiResponse.success(
+                    "Analisis IA generado correctamente.",
+                    processAiAnalysisService.analyzeManual(request));
+        } catch (RuntimeException ex) {
+            log.error("Error procesando analisis IA del proceso", ex);
+            return ApiResponse.error("No se pudo analizar el proceso con IA. Intenta nuevamente en unos minutos.");
+        }
+    }
+
+    @Override
+    public ApiResponse<?> listProcessAnalyses() {
+        return ApiResponse.success(
+                "Analisis IA listados correctamente.",
+                processAiAnalysisService.listAnalyses());
+    }
+
+    @Override
+    public ApiResponse<?> updateProcessAnalysisStatus(
+            String id,
+            ProcessAnalysisStatusUpdateDto request,
+            String reviewedBy) {
+        try {
+            return ApiResponse.success(
+                    "Estado del analisis actualizado correctamente.",
+                    processAiAnalysisService.updateStatus(id, request.getStatus(), reviewedBy));
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo actualizar estado de analisis IA id={}", id, ex);
+            return ApiResponse.error("No se pudo actualizar el estado del analisis IA.");
+        }
     }
 
     private <TResponse> ApiResponse<TResponse> execute(

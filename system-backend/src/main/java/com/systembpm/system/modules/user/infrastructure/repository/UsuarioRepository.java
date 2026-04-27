@@ -25,6 +25,8 @@ public interface UsuarioRepository extends MongoRepository<Usuario, String> {
 
     List<Usuario> findByAreaIdAndActivoTrue(String areaId);
 
+    List<Usuario> findByRolesInAndActivoTrue(List<String> roles);
+
     /**
      * Verifica si existe un usuario con el email dado.
      * Usado para validación antes de crear un nuevo usuario.

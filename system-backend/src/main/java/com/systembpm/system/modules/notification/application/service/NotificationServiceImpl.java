@@ -22,6 +22,7 @@ public class NotificationServiceImpl implements INotificationService {
     private static final String TYPE_TASK_AVAILABLE = "TASK_AVAILABLE";
     private static final String TYPE_TASK_CLAIMED = "TASK_CLAIMED";
     private static final String TYPE_TASK_COMPLETED = "TASK_COMPLETED";
+    private static final String TYPE_AI_ANALYSIS = "AI_ANALYSIS";
 
     private final NotificationRepository notificationRepository;
     private final UsuarioRepository usuarioRepository;
@@ -78,6 +79,28 @@ public class NotificationServiceImpl implements INotificationService {
                 "Tarea completada",
                 "La tarea \"" + resolveTaskName(taskSnapshot) + "\" fue completada por " + safeValue(completedBy, "un usuario") + ".",
                 TYPE_TASK_COMPLETED);
+    }
+
+    public void notifyAiAnalysisForAdmins(
+            String processName,
+            String processId,
+            String analysisId,
+            String message) {
+        List<Usuario> admins = usuarioRepository.findByRolesInAndActivoTrue(List.of("ROLE_ADMIN", "ROLE_BPM_MANAGER"));
+        String normalizedProcessName = safeValue(processName, "Proceso sin nombre");
+        String normalizedMessage = safeValue(
+                message,
+                "IA detecto una recomendacion en el proceso \"" + normalizedProcessName + "\".");
+
+        for (Usuario usuario : admins) {
+            createNotification(
+                    usuario,
+                    "Recomendacion IA",
+                    normalizedMessage,
+                    TYPE_AI_ANALYSIS,
+                    processId,
+                    analysisId);
+        }
     }
 
     @Override

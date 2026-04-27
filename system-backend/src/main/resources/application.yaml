@@ -50,6 +50,13 @@ camunda:
 fastapi:
   base-url: ${FASTAPI_BASE_URL:http://localhost:8000}
 
+ai:
+  analysis:
+    enabled: ${AI_ANALYSIS_ENABLED:true}
+    schedule-ms: ${AI_ANALYSIS_SCHEDULE_MS:21600000}
+    min-score-notify: ${AI_ANALYSIS_MIN_SCORE_NOTIFY:70}
+    notify-severity: ${AI_ANALYSIS_NOTIFY_SEVERITY:high}
+
 cloudinary:
   cloud-name: ${CLOUDINARY_CLOUD_NAME:dpicsykwa}
   api-key: ${CLOUDINARY_API_KEY:753318879769954}

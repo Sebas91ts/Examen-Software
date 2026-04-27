@@ -5,6 +5,8 @@ import com.systembpm.system.modules.ai.application.dto.AnalysisRequestDto;
 import com.systembpm.system.modules.ai.application.dto.AssistantRequestDto;
 import com.systembpm.system.modules.ai.application.dto.EditDiagramRequestDto;
 import com.systembpm.system.modules.ai.application.dto.DiagramRequestDto;
+import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisRequestDto;
+import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisStatusUpdateDto;
 
 public interface IAiService {
 
@@ -15,4 +17,10 @@ public interface IAiService {
     ApiResponse<?> generateDiagram(DiagramRequestDto request);
 
     ApiResponse<?> editDiagram(EditDiagramRequestDto request);
+
+    ApiResponse<?> analyzeProcess(ProcessAnalysisRequestDto request);
+
+    ApiResponse<?> listProcessAnalyses();
+
+    ApiResponse<?> updateProcessAnalysisStatus(String id, ProcessAnalysisStatusUpdateDto request, String reviewedBy);
 }
