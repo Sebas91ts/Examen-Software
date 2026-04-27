@@ -23,4 +23,8 @@ public interface IAiService {
     ApiResponse<?> listProcessAnalyses();
 
     ApiResponse<?> updateProcessAnalysisStatus(String id, ProcessAnalysisStatusUpdateDto request, String reviewedBy);
+
+    ApiResponse<?> applySuggestion(String suggestionId, String reviewedBy);
+
+    ApiResponse<?> rejectSuggestion(String suggestionId, String reviewedBy);
 }

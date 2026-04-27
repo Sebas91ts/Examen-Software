@@ -91,6 +91,30 @@ public class AiServiceImpl implements IAiService {
         }
     }
 
+    @Override
+    public ApiResponse<?> applySuggestion(String suggestionId, String reviewedBy) {
+        try {
+            return ApiResponse.success(
+                    "Sugerencia aplicada correctamente.",
+                    processAiAnalysisService.applySuggestion(suggestionId, reviewedBy));
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo aplicar sugerencia IA id={}", suggestionId, ex);
+            return ApiResponse.error(ex.getMessage() != null ? ex.getMessage() : "No se pudo aplicar la sugerencia IA.");
+        }
+    }
+
+    @Override
+    public ApiResponse<?> rejectSuggestion(String suggestionId, String reviewedBy) {
+        try {
+            return ApiResponse.success(
+                    "Sugerencia rechazada correctamente.",
+                    processAiAnalysisService.rejectSuggestion(suggestionId, reviewedBy));
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo rechazar sugerencia IA id={}", suggestionId, ex);
+            return ApiResponse.error(ex.getMessage() != null ? ex.getMessage() : "No se pudo rechazar la sugerencia IA.");
+        }
+    }
+
     private <TResponse> ApiResponse<TResponse> execute(
             String path,
             Object request,

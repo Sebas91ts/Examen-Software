@@ -74,4 +74,22 @@ public class AiController {
         String reviewedBy = authentication == null ? null : authentication.getName();
         return ResponseEntity.ok(aiService.updateProcessAnalysisStatus(id, request, reviewedBy));
     }
+
+    @PostMapping("/suggestions/{id}/apply")
+    public ResponseEntity<ApiResponse<?>> applySuggestion(
+            @PathVariable String id,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/suggestions/{}/apply", id);
+        String reviewedBy = authentication == null ? null : authentication.getName();
+        return ResponseEntity.ok(aiService.applySuggestion(id, reviewedBy));
+    }
+
+    @PostMapping("/suggestions/{id}/reject")
+    public ResponseEntity<ApiResponse<?>> rejectSuggestion(
+            @PathVariable String id,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/suggestions/{}/reject", id);
+        String reviewedBy = authentication == null ? null : authentication.getName();
+        return ResponseEntity.ok(aiService.rejectSuggestion(id, reviewedBy));
+    }
 }

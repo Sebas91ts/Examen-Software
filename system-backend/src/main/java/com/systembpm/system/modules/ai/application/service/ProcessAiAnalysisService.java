@@ -4,12 +4,15 @@ import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisIssueDto;
 import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisRequestDto;
 import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisResponseDto;
 import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisSuggestionDto;
+import com.systembpm.system.modules.ai.application.dto.ProcessAiSuggestionActionResponseDto;
 import com.systembpm.system.modules.ai.domain.ProcessAiAnalysis;
 import com.systembpm.system.modules.ai.domain.ProcessAiAnalysisIssue;
 import com.systembpm.system.modules.ai.domain.ProcessAiAnalysisStatus;
 import com.systembpm.system.modules.ai.domain.ProcessAiAnalysisSuggestion;
+import com.systembpm.system.modules.ai.domain.ProcessAiSuggestionStatus;
 import com.systembpm.system.modules.ai.infrastructure.client.FastApiClient;
 import com.systembpm.system.modules.ai.infrastructure.repository.ProcessAiAnalysisRepository;
+import com.systembpm.system.modules.ai.infrastructure.repository.ProcessAiSuggestionRepository;
 import com.systembpm.system.modules.notification.application.service.NotificationServiceImpl;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
@@ -27,6 +30,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -35,9 +39,11 @@ public class ProcessAiAnalysisService {
 
     private static final String FASTAPI_ANALYSIS_PATH = "/ai/analyze-process";
     private static final int RECENT_DUPLICATE_HOURS = 24;
+    private static final String ESTADO_BORRADOR = "BORRADOR";
 
     private final FastApiClient fastApiClient;
     private final ProcessAiAnalysisRepository analysisRepository;
+    private final ProcessAiSuggestionRepository suggestionRepository;
     private final ProcesoRepository procesoRepository;
     private final NotificationServiceImpl notificationService;
 
@@ -71,6 +77,69 @@ public class ProcessAiAnalysisService {
         analysis.setReviewedAt(LocalDateTime.now());
         analysis.setReviewedBy(reviewedBy);
         return toDto(analysisRepository.save(analysis));
+    }
+
+    public ProcessAiSuggestionActionResponseDto applySuggestion(String suggestionId, String reviewedBy) {
+        ProcessAiAnalysisSuggestion suggestion = suggestionRepository.findById(suggestionId)
+                .orElseThrow(() -> new IllegalArgumentException("La sugerencia IA no existe"));
+
+        validatePendingSuggestion(suggestion);
+
+        if (!Boolean.TRUE.equals(suggestion.getCanBeAppliedAutomatically())) {
+            throw new IllegalArgumentException("La sugerencia no puede aplicarse automaticamente");
+        }
+
+        String proposedXml = normalizeXml(suggestion.getProposedXml());
+        if (proposedXml == null || proposedXml.isBlank()) {
+            throw new IllegalArgumentException("La sugerencia no tiene XML propuesto");
+        }
+
+        String processId = firstNonBlank(suggestion.getProcessId());
+        if (processId == null || processId.isBlank()) {
+            throw new IllegalArgumentException("La sugerencia no tiene proceso asociado");
+        }
+        Proceso proceso = procesoRepository.findById(processId)
+                .orElseThrow(() -> new IllegalArgumentException("El proceso asociado no existe"));
+
+        if (proceso.getEstado() == null || !ESTADO_BORRADOR.equalsIgnoreCase(proceso.getEstado())) {
+            throw new IllegalArgumentException("Solo se puede aplicar la sugerencia sobre un proceso en BORRADOR");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        proceso.setXml(proposedXml);
+        proceso.setUpdatedAt(now);
+        proceso.setLastSavedAt(now);
+        proceso.setLastSavedBy(reviewedBy);
+        Proceso updatedProcess = procesoRepository.save(proceso);
+
+        suggestion.setStatus(ProcessAiSuggestionStatus.APPLIED);
+        suggestion.setDecidedAt(now);
+        suggestion.setDecidedBy(reviewedBy);
+        ProcessAiAnalysisSuggestion updatedSuggestion = suggestionRepository.save(suggestion);
+        syncAnalysisSuggestionsSnapshot(updatedSuggestion.getAnalysisId());
+
+        return ProcessAiSuggestionActionResponseDto.builder()
+                .process(updatedProcess)
+                .suggestion(toSuggestionDto(updatedSuggestion))
+                .build();
+    }
+
+    public ProcessAiSuggestionActionResponseDto rejectSuggestion(String suggestionId, String reviewedBy) {
+        ProcessAiAnalysisSuggestion suggestion = suggestionRepository.findById(suggestionId)
+                .orElseThrow(() -> new IllegalArgumentException("La sugerencia IA no existe"));
+
+        validatePendingSuggestion(suggestion);
+
+        LocalDateTime now = LocalDateTime.now();
+        suggestion.setStatus(ProcessAiSuggestionStatus.REJECTED);
+        suggestion.setDecidedAt(now);
+        suggestion.setDecidedBy(reviewedBy);
+        ProcessAiAnalysisSuggestion updatedSuggestion = suggestionRepository.save(suggestion);
+        syncAnalysisSuggestionsSnapshot(updatedSuggestion.getAnalysisId());
+
+        return ProcessAiSuggestionActionResponseDto.builder()
+                .suggestion(toSuggestionDto(updatedSuggestion))
+                .build();
     }
 
     @Scheduled(fixedDelayString = "${ai.analysis.schedule-ms:21600000}")
@@ -150,13 +219,16 @@ public class ProcessAiAnalysisService {
                 .score(response.getScore())
                 .summary(response.getSummary())
                 .issues(toIssues(response.getIssues()))
-                .suggestions(toSuggestions(response.getSuggestions()))
+                .suggestions(List.of())
                 .status(ProcessAiAnalysisStatus.NEW)
                 .fingerprint(fingerprint)
                 .createdAt(LocalDateTime.now())
                 .build();
 
-        return analysisRepository.save(analysis);
+        ProcessAiAnalysis savedAnalysis = analysisRepository.save(analysis);
+        List<ProcessAiAnalysisSuggestion> savedSuggestions = saveSuggestions(savedAnalysis, request, response);
+        savedAnalysis.setSuggestions(savedSuggestions);
+        return analysisRepository.save(savedAnalysis);
     }
 
     private boolean shouldAnalyze(Proceso proceso) {
@@ -214,6 +286,7 @@ public class ProcessAiAnalysisService {
     }
 
     private ProcessAnalysisResponseDto toDto(ProcessAiAnalysis analysis) {
+        List<ProcessAiAnalysisSuggestion> suggestions = loadSuggestions(analysis);
         return ProcessAnalysisResponseDto.builder()
                 .id(analysis.getId())
                 .processId(analysis.getProcessId())
@@ -223,7 +296,7 @@ public class ProcessAiAnalysisService {
                 .summary(analysis.getSummary())
                 .score(analysis.getScore())
                 .issues(toIssueDtos(analysis.getIssues()))
-                .suggestions(toSuggestionDtos(analysis.getSuggestions()))
+                .suggestions(toSuggestionDtos(suggestions))
                 .status(analysis.getStatus() == null ? null : analysis.getStatus().name())
                 .createdAt(analysis.getCreatedAt())
                 .build();
@@ -256,6 +329,9 @@ public class ProcessAiAnalysisService {
                         .impact(suggestion.getImpact())
                         .relatedElementId(suggestion.getRelatedElementId())
                         .canBeAppliedAutomatically(Boolean.TRUE.equals(suggestion.getCanBeAppliedAutomatically()))
+                        .proposedXml(normalizeXml(suggestion.getProposedXml()))
+                        .status(ProcessAiSuggestionStatus.PENDING)
+                        .createdAt(LocalDateTime.now())
                         .build())
                 .toList();
     }
@@ -281,14 +357,126 @@ public class ProcessAiAnalysisService {
         }
 
         return suggestions.stream()
-                .map(suggestion -> ProcessAnalysisSuggestionDto.builder()
+                .map(this::toSuggestionDto)
+                .toList();
+    }
+
+    private ProcessAnalysisSuggestionDto toSuggestionDto(ProcessAiAnalysisSuggestion suggestion) {
+        if (suggestion == null) {
+            return null;
+        }
+
+        return ProcessAnalysisSuggestionDto.builder()
+                .id(suggestion.getId())
+                .analysisId(suggestion.getAnalysisId())
+                .processId(suggestion.getProcessId())
+                .processKey(suggestion.getProcessKey())
+                .processVersion(suggestion.getProcessVersion())
+                .title(suggestion.getTitle())
+                .description(suggestion.getDescription())
+                .impact(suggestion.getImpact())
+                .relatedElementId(suggestion.getRelatedElementId())
+                .canBeAppliedAutomatically(Boolean.TRUE.equals(suggestion.getCanBeAppliedAutomatically()))
+                .proposedXml(suggestion.getProposedXml())
+                .status(suggestion.getStatus() == null ? null : suggestion.getStatus().name())
+                .createdAt(suggestion.getCreatedAt())
+                .decidedAt(suggestion.getDecidedAt())
+                .decidedBy(suggestion.getDecidedBy())
+                .build();
+    }
+
+    private List<ProcessAiAnalysisSuggestion> saveSuggestions(
+            ProcessAiAnalysis analysis,
+            ProcessAnalysisRequestDto request,
+            ProcessAnalysisResponseDto response) {
+        List<ProcessAiAnalysisSuggestion> suggestions = toSuggestions(response.getSuggestions());
+        if (suggestions.isEmpty()) {
+            analysis.setSuggestions(List.of());
+            return List.of();
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        for (ProcessAiAnalysisSuggestion suggestion : suggestions) {
+            suggestion.setAnalysisId(analysis.getId());
+            suggestion.setProcessId(firstNonBlank(request.getProcessId(), analysis.getProcessId()));
+            suggestion.setProcessKey(firstNonBlank(request.getProcessKey(), analysis.getProcessKey()));
+            suggestion.setProcessVersion(request.getProcessVersion() != null ? request.getProcessVersion() : analysis.getProcessVersion());
+            suggestion.setStatus(ProcessAiSuggestionStatus.PENDING);
+            suggestion.setCreatedAt(now);
+        }
+
+        List<ProcessAiAnalysisSuggestion> savedSuggestions = suggestionRepository.saveAll(suggestions);
+        analysis.setSuggestions(savedSuggestions);
+        analysisRepository.save(analysis);
+        return savedSuggestions;
+    }
+
+    private List<ProcessAiAnalysisSuggestion> loadSuggestions(ProcessAiAnalysis analysis) {
+        if (analysis == null || analysis.getId() == null || analysis.getId().isBlank()) {
+            return List.of();
+        }
+
+        List<ProcessAiAnalysisSuggestion> suggestions = suggestionRepository.findByAnalysisIdOrderByCreatedAtAsc(analysis.getId());
+        if (suggestions != null && !suggestions.isEmpty()) {
+            return suggestions;
+        }
+
+        List<ProcessAiAnalysisSuggestion> embeddedSuggestions = analysis.getSuggestions() == null ? List.of() : analysis.getSuggestions();
+        if (embeddedSuggestions.isEmpty()) {
+            return List.of();
+        }
+
+        List<ProcessAiAnalysisSuggestion> backfilledSuggestions = embeddedSuggestions.stream()
+                .map(suggestion -> ProcessAiAnalysisSuggestion.builder()
+                        .id(suggestion.getId() != null && !suggestion.getId().isBlank() ? suggestion.getId() : UUID.randomUUID().toString())
+                        .analysisId(analysis.getId())
+                        .processId(firstNonBlank(suggestion.getProcessId(), analysis.getProcessId()))
+                        .processKey(firstNonBlank(suggestion.getProcessKey(), analysis.getProcessKey()))
+                        .processVersion(suggestion.getProcessVersion() != null ? suggestion.getProcessVersion() : analysis.getProcessVersion())
                         .title(suggestion.getTitle())
                         .description(suggestion.getDescription())
                         .impact(suggestion.getImpact())
                         .relatedElementId(suggestion.getRelatedElementId())
                         .canBeAppliedAutomatically(Boolean.TRUE.equals(suggestion.getCanBeAppliedAutomatically()))
+                        .proposedXml(normalizeXml(suggestion.getProposedXml()))
+                        .status(suggestion.getStatus() == null ? ProcessAiSuggestionStatus.PENDING : suggestion.getStatus())
+                        .createdAt(suggestion.getCreatedAt() == null
+                                ? (analysis.getCreatedAt() == null ? LocalDateTime.now() : analysis.getCreatedAt())
+                                : suggestion.getCreatedAt())
+                        .decidedAt(suggestion.getDecidedAt())
+                        .decidedBy(suggestion.getDecidedBy())
                         .build())
                 .toList();
+
+        List<ProcessAiAnalysisSuggestion> savedBackfilled = suggestionRepository.saveAll(backfilledSuggestions);
+        analysis.setSuggestions(savedBackfilled);
+        analysisRepository.save(analysis);
+        return savedBackfilled;
+    }
+
+    private void syncAnalysisSuggestionsSnapshot(String analysisId) {
+        if (analysisId == null || analysisId.isBlank()) {
+            return;
+        }
+
+        ProcessAiAnalysis analysis = analysisRepository.findById(analysisId).orElse(null);
+        if (analysis == null) {
+            return;
+        }
+
+        List<ProcessAiAnalysisSuggestion> currentSuggestions = suggestionRepository.findByAnalysisIdOrderByCreatedAtAsc(analysisId);
+        analysis.setSuggestions(currentSuggestions == null ? List.of() : currentSuggestions);
+        analysisRepository.save(analysis);
+    }
+
+    private void validatePendingSuggestion(ProcessAiAnalysisSuggestion suggestion) {
+        if (suggestion == null) {
+            throw new IllegalArgumentException("La sugerencia IA no existe");
+        }
+
+        if (suggestion.getStatus() != null && suggestion.getStatus() != ProcessAiSuggestionStatus.PENDING) {
+            throw new IllegalArgumentException("La sugerencia ya fue procesada");
+        }
     }
 
     private String fingerprint(ProcessAnalysisResponseDto response) {
@@ -311,5 +499,9 @@ public class ProcessAiAnalysisService {
             }
         }
         return null;
+    }
+
+    private String normalizeXml(String xml) {
+        return xml == null ? null : xml.trim();
     }
 }
