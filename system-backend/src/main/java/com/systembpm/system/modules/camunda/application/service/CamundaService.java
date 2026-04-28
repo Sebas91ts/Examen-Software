@@ -26,6 +26,8 @@ public interface CamundaService {
 
     Map<String, Object> obtenerTarea(String taskId);
 
+    Map<String, Object> obtenerVariablesTarea(String taskId);
+
     Map<String, Object> completarTarea(String taskId);
 
     Map<String, Object> completarTarea(String taskId, Map<String, Object> variables);

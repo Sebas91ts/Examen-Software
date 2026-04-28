@@ -255,6 +255,41 @@ public class CamundaServiceImpl implements CamundaService {
     }
 
     @Override
+    public Map<String, Object> obtenerVariablesTarea(String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("El taskId es obligatorio");
+        }
+
+        try {
+            ResponseEntity<Map<String, Map<String, Object>>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/task/" + taskId + "/variables",
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    new ParameterizedTypeReference<>() {
+                    });
+
+            Map<String, Map<String, Object>> rawVariables = response.getBody();
+            if (rawVariables == null || rawVariables.isEmpty()) {
+                return Map.of();
+            }
+
+            Map<String, Object> variables = new java.util.LinkedHashMap<>();
+            for (Map.Entry<String, Map<String, Object>> entry : rawVariables.entrySet()) {
+                Map<String, Object> variable = entry.getValue();
+                if (variable == null || !variable.containsKey("value")) {
+                    continue;
+                }
+                variables.put(entry.getKey(), variable.get("value"));
+            }
+
+            return variables;
+        } catch (HttpStatusCodeException ex) {
+            log.warn("No se pudieron obtener las variables de la tarea {}: {}", taskId, ex.getResponseBodyAsString());
+            return Map.of();
+        }
+    }
+
+    @Override
     public Map<String, Object> completarTarea(String taskId) {
         return completarTarea(taskId, Map.of());
     }

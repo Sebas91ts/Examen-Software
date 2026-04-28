@@ -31,10 +31,12 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.text.Normalizer;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -44,6 +46,11 @@ public class ClientProcessServiceImpl implements ClientProcessService {
 
     private static final String ESTADO_PUBLICADO = "PUBLICADO";
     private static final String ESTADO_ACTIVA = "ACTIVA";
+    private static final Set<String> CLIENT_HISTORY_EXCLUDED_KEYS = Set.of(
+            "clientUserId",
+            "clientEmail",
+            "startedByRole"
+    );
 
     private final ProcesoRepository procesoRepository;
     private final UsuarioRepository usuarioRepository;
@@ -233,7 +240,7 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         ClientProcessTrackingResponseDto baseTracking;
         try {
             log.debug("Construyendo tracking cliente seguro para processInstanceId={}", processInstanceId);
-            baseTracking = buildClientTrackingSeguro(processInstanceId.trim(), clientInstance);
+            baseTracking = buildClientTrackingSeguro(processInstanceId.trim(), clientInstance, clientEmail.trim());
         } catch (Exception ex) {
             log.warn("No se pudo construir el tracking cliente completo para processInstanceId={} clientEmail={}",
                     processInstanceId, clientEmail, ex);
@@ -271,7 +278,7 @@ public class ClientProcessServiceImpl implements ClientProcessService {
                 .build();
     }
 
-    private ClientProcessTrackingResponseDto buildClientTrackingSeguro(String processInstanceId, ClientProcessInstance clientInstance) {
+    private ClientProcessTrackingResponseDto buildClientTrackingSeguro(String processInstanceId, ClientProcessInstance clientInstance, String clientEmail) {
         log.debug("buildClientTrackingSeguro: consultando historial de ejecucion para processInstanceId={}", processInstanceId);
         List<com.systembpm.system.modules.taskexecutionlog.application.dto.TaskExecutionLogResponseDto> historyLogs;
         try {
@@ -283,6 +290,13 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         if (historyLogs == null) {
             historyLogs = List.of();
         }
+        historyLogs = historyLogs.stream()
+                .filter(entry -> entry != null
+                        && hasText(entry.getCompletedBy())
+                        && hasText(clientEmail)
+                        && entry.getCompletedBy().trim().equalsIgnoreCase(clientEmail.trim())
+                        && isClientHistoryArea(entry.getAreaNombre()))
+                .toList();
         log.debug("buildClientTrackingSeguro: logs de historial encontrados={}", historyLogs.size());
 
         List<ClientTrackingHistoryItemDto> history = historyLogs.stream()
@@ -652,6 +666,16 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         return hasText(value) ? value.trim() : null;
     }
 
+    private String normalizeText(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("[\\u0300-\\u036f]", "")
+                .toLowerCase();
+    }
+
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
     }
@@ -667,6 +691,10 @@ public class ClientProcessServiceImpl implements ClientProcessService {
                 continue;
             }
 
+            if (CLIENT_HISTORY_EXCLUDED_KEYS.contains(entry.getKey().trim())) {
+                continue;
+            }
+
             Object value = sanitizeValue(entry.getValue());
             if (value != null) {
                 sanitized.put(entry.getKey().trim(), value);
@@ -674,6 +702,19 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         }
 
         return sanitized;
+    }
+
+    private boolean isClientHistoryArea(String areaName) {
+        if (!hasText(areaName)) {
+            return false;
+        }
+
+        String normalized = normalizeText(areaName);
+        return normalized.equals("cliente")
+                || normalized.startsWith("cliente ")
+                || normalized.startsWith("cliente-")
+                || normalized.equals("clienteexterno")
+                || normalized.startsWith("cliente externo");
     }
 
     @SuppressWarnings("unchecked")
