@@ -52,7 +52,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/process-instances/**").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/tarea-instancias/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/files/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
-                .requestMatchers("/api/notifications/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/notifications/**").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/assistant").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/analyze-process").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/analyses/**").hasAnyRole("ADMIN", "BPM_MANAGER")

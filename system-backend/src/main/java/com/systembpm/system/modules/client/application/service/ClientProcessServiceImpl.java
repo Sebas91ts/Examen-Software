@@ -1,7 +1,9 @@
 package com.systembpm.system.modules.client.application.service;
 
 import com.systembpm.system.modules.camunda.application.service.CamundaService;
+import com.systembpm.system.modules.client.application.dto.ClientProcessTrackingResponseDto;
 import com.systembpm.system.modules.client.application.dto.ClientProcessStartPreviewDto;
+import com.systembpm.system.modules.client.application.dto.ClientTrackingHistoryItemDto;
 import com.systembpm.system.modules.client.application.dto.ClientProcessListItemDto;
 import com.systembpm.system.modules.client.application.dto.ClientProcessInstanceListItemDto;
 import com.systembpm.system.modules.client.application.dto.ClientProcessStartResponseDto;
@@ -28,9 +30,12 @@ import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -107,6 +112,8 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         Usuario cliente = usuarioRepository.findByEmail(clientEmail.trim())
                 .orElseThrow(() -> new IllegalArgumentException("No se encontro el usuario cliente autenticado"));
 
+        log.info("Iniciando tramite cliente: processId={} clientEmail={}", processId, clientEmail);
+
         Proceso proceso = procesoRepository.findById(processId.trim())
                 .orElseThrow(() -> new IllegalArgumentException("El proceso no existe"));
 
@@ -118,10 +125,14 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         normalizedVariables.putIfAbsent("clientEmail", cliente.getEmail());
         normalizedVariables.putIfAbsent("startedByRole", "CLIENT");
 
+        log.debug("Variables normalizadas para inicio cliente processId={}: {}", processId, normalizedVariables.keySet());
         Map<String, Object> camundaResponse = camundaService.iniciarInstanciaConVariables(proceso.getProcessKey(), normalizedVariables);
         String processInstanceId = stringValue(camundaResponse.get("processInstanceId"));
         if (processInstanceId == null || processInstanceId.isBlank()) {
             processInstanceId = stringValue(camundaResponse.get("id"));
+        }
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            throw new IllegalStateException("Camunda no devolvio el processInstanceId");
         }
 
         ClientProcessInstance instance = ClientProcessInstance.builder()
@@ -139,15 +150,27 @@ public class ClientProcessServiceImpl implements ClientProcessService {
 
         ClientProcessInstance saved = clientProcessInstanceRepository.save(instance);
 
-        Map<String, Object> firstTaskSnapshot = encontrarPrimeraTareaDeInstancia(processInstanceId);
-        if (!firstTaskSnapshot.isEmpty()) {
-            camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables);
-            taskExecutionLogService.registrarEjecucion(firstTaskSnapshot, normalizedVariables, cliente.getEmail());
-            notificationService.notifyTaskCompleted(firstTaskSnapshot, cliente.getEmail());
-            realtimeEventService.publishTaskCompleted(firstTaskSnapshot, cliente.getEmail());
+        try {
+            log.debug("Buscando primera tarea de instancia cliente processInstanceId={}", processInstanceId);
+            Map<String, Object> firstTaskSnapshot = encontrarPrimeraTareaDeInstancia(processInstanceId);
+            if (!firstTaskSnapshot.isEmpty()) {
+                log.debug("Primera tarea encontrada para cliente processInstanceId={} taskId={} taskKey={}",
+                        processInstanceId, stringValue(firstTaskSnapshot.get("id")), stringValue(firstTaskSnapshot.get("taskDefinitionKey")));
+                camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables);
+                taskExecutionLogService.registrarEjecucion(firstTaskSnapshot, normalizedVariables, cliente.getEmail());
+                notificationService.notifyTaskCompleted(firstTaskSnapshot, cliente.getEmail());
+                realtimeEventService.publishTaskCompleted(firstTaskSnapshot, cliente.getEmail());
+            }
+        } catch (Exception ex) {
+            log.warn("No se pudo completar la primera tarea o publicar eventos para el tramite cliente {}", processInstanceId, ex);
         }
 
-        publicarEventosTareasActivas(processInstanceId);
+        try {
+            log.debug("Publicando tareas activas iniciales del tramite cliente processInstanceId={}", processInstanceId);
+            publicarEventosTareasActivas(processInstanceId);
+        } catch (Exception ex) {
+            log.warn("No se pudieron publicar las tareas activas iniciales del tramite cliente {}", processInstanceId, ex);
+        }
         log.info("Tramite de cliente iniciado: processId={} processInstanceId={} user={} firstTask={}",
                 proceso.getId(), processInstanceId, cliente.getEmail(), primerPaso.taskDefinitionKey());
 
@@ -189,6 +212,136 @@ public class ClientProcessServiceImpl implements ClientProcessService {
                 .toList();
     }
 
+    @Override
+    public ClientProcessTrackingResponseDto obtenerTrackingCliente(String processInstanceId, String clientEmail) {
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            throw new IllegalArgumentException("La instancia es obligatoria");
+        }
+        if (clientEmail == null || clientEmail.isBlank()) {
+            throw new IllegalArgumentException("El usuario autenticado es obligatorio");
+        }
+
+        Usuario cliente = usuarioRepository.findByEmail(clientEmail.trim())
+                .orElseThrow(() -> new IllegalArgumentException("No se encontro el usuario cliente autenticado"));
+
+        log.info("Obteniendo tracking cliente: processInstanceId={} clientEmail={}", processInstanceId, clientEmail);
+
+        ClientProcessInstance clientInstance = clientProcessInstanceRepository
+                .findByProcessInstanceIdAndClientEmail(processInstanceId.trim(), clientEmail.trim())
+                .orElseThrow(() -> new IllegalArgumentException("No tienes acceso a esta instancia"));
+
+        ClientProcessTrackingResponseDto baseTracking;
+        try {
+            log.debug("Construyendo tracking cliente seguro para processInstanceId={}", processInstanceId);
+            baseTracking = buildClientTrackingSeguro(processInstanceId.trim(), clientInstance);
+        } catch (Exception ex) {
+            log.warn("No se pudo construir el tracking cliente completo para processInstanceId={} clientEmail={}",
+                    processInstanceId, clientEmail, ex);
+            baseTracking = buildFallbackClientTracking(processInstanceId.trim(), clientInstance);
+        }
+
+        return ClientProcessTrackingResponseDto.builder()
+                .processName(clientInstance.getProcessName())
+                .estado(baseTracking.getEstado())
+                .startedAt(clientInstance.getStartedAt())
+                .progressPercentage(baseTracking.getProgressPercentage())
+                .currentTaskName(safeText(baseTracking.getCurrentTaskName()))
+                .currentAreaName(safeText(baseTracking.getCurrentAreaName()))
+                .history(baseTracking.getHistory())
+                .xmlBpmn(baseTracking.getXmlBpmn())
+                .completedTaskKeys(baseTracking.getCompletedTaskKeys())
+                .activeTaskKeys(baseTracking.getActiveTaskKeys())
+                .pendingTaskKeys(baseTracking.getPendingTaskKeys())
+                .build();
+    }
+
+    private ClientProcessTrackingResponseDto buildFallbackClientTracking(String processInstanceId, ClientProcessInstance clientInstance) {
+        Proceso proceso = findProcesoCliente(clientInstance);
+        String xmlBpmn = proceso != null ? safeXml(proceso.getXml()) : "";
+        return ClientProcessTrackingResponseDto.builder()
+                .estado(clientInstance != null && hasText(clientInstance.getEstado()) ? clientInstance.getEstado() : "ACTIVA")
+                .progressPercentage(0)
+                .currentTaskName(null)
+                .currentAreaName(null)
+                .history(List.of())
+                .xmlBpmn(xmlBpmn)
+                .completedTaskKeys(List.of())
+                .activeTaskKeys(List.of())
+                .pendingTaskKeys(resolvePendingTaskKeysFromXml(xmlBpmn, List.of(), List.of()))
+                .build();
+    }
+
+    private ClientProcessTrackingResponseDto buildClientTrackingSeguro(String processInstanceId, ClientProcessInstance clientInstance) {
+        log.debug("buildClientTrackingSeguro: consultando historial de ejecucion para processInstanceId={}", processInstanceId);
+        List<com.systembpm.system.modules.taskexecutionlog.application.dto.TaskExecutionLogResponseDto> historyLogs;
+        try {
+            historyLogs = taskExecutionLogService.listarPorInstancia(processInstanceId);
+        } catch (Throwable ex) {
+            log.error("buildClientTrackingSeguro: fallo al consultar historial para processInstanceId={}", processInstanceId, ex);
+            historyLogs = List.of();
+        }
+        if (historyLogs == null) {
+            historyLogs = List.of();
+        }
+        log.debug("buildClientTrackingSeguro: logs de historial encontrados={}", historyLogs.size());
+
+        List<ClientTrackingHistoryItemDto> history = historyLogs.stream()
+                .map(entry -> ClientTrackingHistoryItemDto.builder()
+                        .taskName(entry.getTaskName())
+                        .areaName(entry.getAreaNombre())
+                        .completedAt(entry.getCompletedAt())
+                        .formData(sanitizeFormData(entry.getFormData()))
+                        .build())
+                .toList();
+
+        String lastTaskDefinitionKey = historyLogs.isEmpty()
+                ? null
+                : historyLogs.get(historyLogs.size() - 1).getTaskDefinitionKey();
+        List<String> activeKeys = hasText(lastTaskDefinitionKey)
+                ? List.of(lastTaskDefinitionKey)
+                : List.of();
+
+        List<String> completedKeys = historyLogs.stream()
+                .map(com.systembpm.system.modules.taskexecutionlog.application.dto.TaskExecutionLogResponseDto::getTaskDefinitionKey)
+                .filter(this::hasText)
+                .distinct()
+                .toList();
+
+        Proceso proceso;
+        try {
+            proceso = findProcesoCliente(clientInstance);
+        } catch (Throwable ex) {
+            log.error("buildClientTrackingSeguro: fallo resolviendo proceso para processInstanceId={}", processInstanceId, ex);
+            proceso = null;
+        }
+        log.debug("buildClientTrackingSeguro: proceso resuelto={} para processInstanceId={}",
+                proceso != null ? proceso.getProcessKey() : "null", processInstanceId);
+        String xmlBpmn = proceso != null ? safeXml(proceso.getXml()) : "";
+        List<String> pendingKeys;
+        try {
+            pendingKeys = resolvePendingTaskKeysFromXml(xmlBpmn, completedKeys, activeKeys);
+        } catch (Throwable ex) {
+            log.error("buildClientTrackingSeguro: fallo calculando tareas pendientes para processInstanceId={}", processInstanceId, ex);
+            pendingKeys = List.of();
+        }
+        log.debug("buildClientTrackingSeguro: keys completed={} active={} pending={}",
+                completedKeys.size(), activeKeys.size(), pendingKeys.size());
+
+        ClientTrackingHistoryItemDto lastHistory = history.isEmpty() ? null : history.get(history.size() - 1);
+
+        return ClientProcessTrackingResponseDto.builder()
+                .estado(pendingKeys.isEmpty() && !history.isEmpty() ? "FINALIZADA" : "ACTIVA")
+                .progressPercentage(calcularProgreso(completedKeys, activeKeys, pendingKeys))
+                .currentTaskName(lastHistory != null ? lastHistory.getTaskName() : null)
+                .currentAreaName(lastHistory != null ? lastHistory.getAreaName() : null)
+                .history(history)
+                .xmlBpmn(xmlBpmn)
+                .completedTaskKeys(completedKeys)
+                .activeTaskKeys(activeKeys)
+                .pendingTaskKeys(pendingKeys)
+                .build();
+    }
+
     private void validarProcesoHabilitado(Proceso proceso) {
         if (proceso == null) {
             throw new IllegalArgumentException("El proceso no existe");
@@ -225,7 +378,12 @@ public class ClientProcessServiceImpl implements ClientProcessService {
             return;
         }
 
-        List<Map<String, Object>> tareasIniciales = camundaService.listarTareasTodas().stream()
+        List<Map<String, Object>> tareasBase = camundaService.listarTareasTodas();
+        if (tareasBase == null) {
+            tareasBase = List.of();
+        }
+
+        List<Map<String, Object>> tareasIniciales = tareasBase.stream()
                 .filter(tarea -> processInstanceId.equals(String.valueOf(tarea.get("processInstanceId"))))
                 .toList();
 
@@ -247,7 +405,12 @@ public class ClientProcessServiceImpl implements ClientProcessService {
             return Map.of();
         }
 
-        return camundaService.listarTareasTodas().stream()
+        List<Map<String, Object>> allTasks = camundaService.listarTareasTodas();
+        if (allTasks == null) {
+            return Map.of();
+        }
+
+        return allTasks.stream()
                 .filter(tarea -> processInstanceId.equals(String.valueOf(tarea.get("processInstanceId"))))
                 .findFirst()
                 .orElse(Map.of());
@@ -377,6 +540,199 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         }
 
         return false;
+    }
+
+    private int calcularProgreso(List<String> completedTaskKeys, List<String> activeTaskKeys, List<String> pendingTaskKeys) {
+        int completed = completedTaskKeys != null ? (int) completedTaskKeys.stream().filter(this::hasText).distinct().count() : 0;
+        int active = activeTaskKeys != null ? (int) activeTaskKeys.stream().filter(this::hasText).distinct().count() : 0;
+        int pending = pendingTaskKeys != null ? (int) pendingTaskKeys.stream().filter(this::hasText).distinct().count() : 0;
+        int total = completed + active + pending;
+        if (total <= 0) {
+            return 0;
+        }
+
+        return Math.min(100, Math.max(0, Math.round((completed * 100.0f) / total)));
+    }
+
+    private String safeXml(String xml) {
+        return hasText(xml) ? xml : "";
+    }
+
+    private Proceso findProcesoCliente(ClientProcessInstance clientInstance) {
+        if (clientInstance == null || !hasText(clientInstance.getProcessKey())) {
+            return null;
+        }
+
+        List<Proceso> procesos = procesoRepository.findByProcessKey(clientInstance.getProcessKey());
+        if (procesos == null || procesos.isEmpty()) {
+            return null;
+        }
+
+        if (clientInstance.getProcessVersion() != null) {
+            for (Proceso proceso : procesos) {
+                if (Objects.equals(proceso.getVersion(), clientInstance.getProcessVersion())) {
+                    return proceso;
+                }
+            }
+        }
+
+        return procesos.stream()
+                .max(java.util.Comparator.comparing(proceso -> proceso.getVersion() != null ? proceso.getVersion() : 0))
+                .orElse(null);
+    }
+
+    private List<String> resolvePendingTaskKeysFromXml(String xmlBpmn, List<String> completedTaskKeys, List<String> activeTaskKeys) {
+        if (!hasText(xmlBpmn)) {
+            return List.of();
+        }
+
+        List<String> orderedTaskKeys = extractTaskKeysFromBpmn(xmlBpmn);
+        List<String> excluded = new ArrayList<>();
+        excluded.addAll(completedTaskKeys != null ? completedTaskKeys : List.of());
+        excluded.addAll(activeTaskKeys != null ? activeTaskKeys : List.of());
+
+        return orderedTaskKeys.stream()
+                .filter(this::hasText)
+                .filter(taskKey -> excluded.stream().noneMatch(excludedKey -> excludedKey.equalsIgnoreCase(taskKey)))
+                .distinct()
+                .toList();
+    }
+
+    private List<String> extractTaskKeysFromBpmn(String xmlBpmn) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setExpandEntityReferences(false);
+
+            Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(xmlBpmn)));
+            NodeList nodes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "*");
+            List<String> taskKeys = new ArrayList<>();
+
+            for (int i = 0; i < nodes.getLength(); i++) {
+                Element element = (Element) nodes.item(i);
+                String localName = element.getLocalName();
+                if (!isTrackableTask(localName)) {
+                    continue;
+                }
+
+                String id = element.getAttribute("id");
+                if (hasText(id)) {
+                    taskKeys.add(id.trim());
+                }
+            }
+
+            return taskKeys.stream()
+                    .filter(this::hasText)
+                    .distinct()
+                    .toList();
+        } catch (Exception ex) {
+            log.warn("No se pudo extraer las tareas del BPMN para tracking cliente", ex);
+            return List.of();
+        }
+    }
+
+    private boolean isTrackableTask(String localName) {
+        if (!hasText(localName)) {
+            return false;
+        }
+
+        return "task".equals(localName)
+                || "userTask".equals(localName)
+                || "manualTask".equals(localName)
+                || "serviceTask".equals(localName)
+                || "scriptTask".equals(localName)
+                || "businessRuleTask".equals(localName)
+                || "sendTask".equals(localName)
+                || "receiveTask".equals(localName);
+    }
+
+    private String safeText(String value) {
+        return hasText(value) ? value.trim() : null;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
+    }
+
+    private Map<String, Object> sanitizeFormData(Map<String, Object> formData) {
+        if (formData == null || formData.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> sanitized = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : formData.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+
+            Object value = sanitizeValue(entry.getValue());
+            if (value != null) {
+                sanitized.put(entry.getKey().trim(), value);
+            }
+        }
+
+        return sanitized;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object sanitizeValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+
+        if (value instanceof String stringValue) {
+            return stringValue;
+        }
+
+        if (value instanceof Number || value instanceof Boolean) {
+            return value;
+        }
+
+        if (value instanceof Map<?, ?> mapValue) {
+            Map<String, Object> fileLike = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> nestedEntry : mapValue.entrySet()) {
+                if (nestedEntry.getKey() == null) {
+                    continue;
+                }
+
+                String key = String.valueOf(nestedEntry.getKey());
+                if ("secureUrl".equalsIgnoreCase(key)
+                        || "fileName".equalsIgnoreCase(key)
+                        || "publicId".equalsIgnoreCase(key)
+                        || "mimeType".equalsIgnoreCase(key)
+                        || "resourceType".equalsIgnoreCase(key)
+                        || "size".equalsIgnoreCase(key)) {
+                    fileLike.put(key, nestedEntry.getValue());
+                }
+            }
+
+            if (!fileLike.isEmpty()) {
+                return fileLike;
+            }
+
+            return mapValue.entrySet().stream()
+                    .filter(entry -> entry.getKey() != null)
+                    .collect(Collectors.toMap(
+                            entry -> String.valueOf(entry.getKey()),
+                            Map.Entry::getValue,
+                            (a, b) -> a,
+                            LinkedHashMap::new));
+        }
+
+        if (value instanceof List<?> listValue) {
+            List<Object> sanitizedItems = new ArrayList<>();
+            for (Object item : listValue) {
+                Object sanitizedItem = sanitizeValue(item);
+                if (sanitizedItem != null) {
+                    sanitizedItems.add(sanitizedItem);
+                }
+            }
+            return sanitizedItems;
+        }
+
+        return String.valueOf(value);
     }
 
     private String encontrarPrimerNodoInteractivoDesdeStart(Document document) {
