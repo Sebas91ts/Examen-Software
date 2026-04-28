@@ -177,9 +177,9 @@ public class JwtService {
     public ResponseCookie crearCookieJwt(String token) {
         return ResponseCookie.from(JWT_COOKIE_NAME, token)
                 .httpOnly(true)
-                .secure(false)
+                .secure(true)
                 .path("/")
-                .sameSite("Lax")
+                .sameSite("None")
                 .maxAge(jwtExpiration / 1000)
                 .build();
     }
@@ -192,9 +192,9 @@ public class JwtService {
     public ResponseCookie limpiarCookieJwt() {
         return ResponseCookie.from(JWT_COOKIE_NAME, "")
                 .httpOnly(true)
-                .secure(false)
+                .secure(true)
                 .path("/")
-                .sameSite("Lax")
+                .sameSite("None")
                 .maxAge(0)
                 .build();
     }

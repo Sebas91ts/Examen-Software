@@ -50,6 +50,9 @@ public class ProcessAiAnalysisService {
     @Value("${ai.analysis.enabled:true}")
     private boolean enabled;
 
+    @Value("${ai.analysis.auto-enabled:true}")
+    private boolean autoEnabled;
+
     @Value("${ai.analysis.min-score-notify:70}")
     private int minScoreNotify;
 
@@ -142,9 +145,12 @@ public class ProcessAiAnalysisService {
                 .build();
     }
 
-    @Scheduled(fixedDelayString = "${ai.analysis.schedule-ms:21600000}")
+    @Scheduled(
+            fixedDelayString = "${ai.analysis.schedule-ms:21600000}",
+            initialDelayString = "${ai.analysis.initial-delay-ms:21600000}"
+    )
     public void runScheduledAnalysis() {
-        if (!enabled) {
+        if (!enabled || !autoEnabled) {
             return;
         }
 

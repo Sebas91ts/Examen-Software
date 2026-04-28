@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,6 +38,9 @@ public class SecurityConfig {
                 .requestMatchers(
                         "/camunda",
                         "/camunda/**",
+                        "/camunda/app/**",
+                        "/camunda/assets/**",
+                        "/camunda/lib/**",
                         "/engine-rest/**",
                         "/app/**",
                         "/api/admin/**",
@@ -66,7 +70,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/ai/analyses/**").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/suggestions/**").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/**").hasAnyRole("ADMIN", "BPM_MANAGER")
-                .requestMatchers("/ws/**").permitAll()
+                .requestMatchers("/ws", "/ws/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .anyRequest().authenticated()
             )
@@ -82,7 +86,9 @@ public CorsConfigurationSource corsConfigurationSource() {
     config.setAllowedOrigins(List.of(
         "http://localhost:4200",
         "http://localhost:3000",
-        "http://localhost:59244"
+        "http://localhost:59244",
+        "https://frontend-system-three-flame.vercel.app",
+        "https://systembpm-sebas.duckdns.org"
     ));
 
     config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
@@ -100,5 +106,14 @@ public CorsConfigurationSource corsConfigurationSource() {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return web -> web.ignoring().requestMatchers(
+                "/camunda/app/**",
+                "/camunda/assets/**",
+                "/camunda/lib/**"
+        );
     }
 }

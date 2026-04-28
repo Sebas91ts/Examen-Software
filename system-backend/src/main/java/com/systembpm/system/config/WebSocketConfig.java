@@ -19,6 +19,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("http://localhost:4200", "http://localhost:3000", "http://localhost:59244");
+                .setAllowedOriginPatterns(
+                        "http://localhost:4200",
+                        "http://localhost:3000",
+                        "http://localhost:59244",
+                        "https://frontend-system-three-flame.vercel.app",
+                        "https://systembpm-sebas.duckdns.org"
+                );
     }
 }

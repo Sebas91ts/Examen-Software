@@ -34,6 +34,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String JWT_COOKIE_NAME = "auth_token";
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        String path = request.getRequestURI();
+
+        return path.startsWith("/api/auth/")
+                || path.startsWith("/camunda")
+                || path.startsWith("/engine-rest")
+                || path.startsWith("/app")
+                || path.startsWith("/lib")
+                || path.startsWith("/api/admin")
+                || path.equals("/ws")
+                || path.startsWith("/ws/")
+                || path.contains("/camunda/assets")
+                || path.contains("/camunda/app")
+                || path.equals("/error");
+    }
+
+    @Override
     protected void doFilterInternal(
             HttpServletRequest request,
             HttpServletResponse response,
