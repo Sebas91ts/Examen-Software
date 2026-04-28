@@ -149,7 +149,11 @@ public class CamundaController {
 
         Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
         Map<String, Object> response = camundaService.completarTarea(taskId, variables);
-        taskExecutionLogService.registrarEjecucion(taskSnapshot, variables, authentication.getName());
+        try {
+            taskExecutionLogService.registrarEjecucion(taskSnapshot, variables, authentication.getName());
+        } catch (Exception ex) {
+            log.warn("No se pudo registrar el historial de ejecucion para la tarea {}. Se continua con notificaciones.", taskId, ex);
+        }
         notificationService.notifyTaskCompleted(taskSnapshot, authentication.getName());
         realtimeEventService.publishTaskCompleted(taskSnapshot, authentication.getName());
 

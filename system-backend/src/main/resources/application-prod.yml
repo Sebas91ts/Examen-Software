@@ -1,0 +1,30 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  config:
+    import: optional:file:.env,optional:file:system-backend/.env
+  data:
+    mongodb:
+      uri: ${MONGODB_URI}
+
+camunda:
+  bpm:
+    admin-user:
+      id: admin
+      password: ${CAMUNDA_ADMIN_PASSWORD:admin}
+      firstName: Admin
+    filter:
+      create: All tasks
+    webapp:
+      index-redirect-enabled: true
+
+app:
+  push:
+    firebase:
+      enabled: ${FIREBASE_ENABLED:false}
+      service-account-base64: ${FIREBASE_SERVICE_ACCOUNT_BASE64:}
+      project-id: ${FIREBASE_PROJECT_ID:}
+
+  fastapi:
+    url: ${FASTAPI_URL:http://127.0.0.1:8000}

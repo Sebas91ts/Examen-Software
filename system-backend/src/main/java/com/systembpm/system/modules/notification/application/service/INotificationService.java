@@ -14,6 +14,8 @@ public interface INotificationService {
 
     void notifyTaskCompleted(Map<String, Object> taskSnapshot, String completedBy);
 
+    void notifyUserByEmail(String userEmail, String title, String message, String type, String processInstanceId, String taskId);
+
     List<NotificationResponseDto> listarMisNotificaciones(String userEmail);
 
     UnreadCountResponseDto obtenerCantidadNoLeidas(String userEmail);

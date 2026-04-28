@@ -34,6 +34,14 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers(
+                        "/camunda",
+                        "/camunda/**",
+                        "/engine-rest/**",
+                        "/app/**",
+                        "/api/admin/**",
+                        "/lib/**"
+                ).permitAll()
                 .requestMatchers("/api/client/**").hasRole("CLIENT")
                 .requestMatchers("/api/areas/**").hasRole("ADMIN")
                 .requestMatchers("/api/users/**").hasRole("ADMIN")

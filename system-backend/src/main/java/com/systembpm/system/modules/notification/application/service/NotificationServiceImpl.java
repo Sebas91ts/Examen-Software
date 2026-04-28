@@ -4,6 +4,8 @@ import com.systembpm.system.modules.notification.application.dto.NotificationRes
 import com.systembpm.system.modules.notification.application.dto.UnreadCountResponseDto;
 import com.systembpm.system.modules.notification.domain.Notification;
 import com.systembpm.system.modules.notification.infrastructure.repository.NotificationRepository;
+import com.systembpm.system.modules.client.domain.ClientProcessInstance;
+import com.systembpm.system.modules.client.infrastructure.repository.ClientProcessInstanceRepository;
 import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
 import com.systembpm.system.modules.user.domain.Usuario;
 import com.systembpm.system.modules.user.infrastructure.repository.UsuarioRepository;
@@ -23,18 +25,26 @@ public class NotificationServiceImpl implements INotificationService {
     private static final String TYPE_TASK_CLAIMED = "TASK_CLAIMED";
     private static final String TYPE_TASK_COMPLETED = "TASK_COMPLETED";
     private static final String TYPE_AI_ANALYSIS = "AI_ANALYSIS";
+    private static final String TYPE_PROCESS_STARTED = "PROCESS_STARTED";
+    private static final String TYPE_PROCESS_UPDATED = "PROCESS_UPDATED";
 
     private final NotificationRepository notificationRepository;
     private final UsuarioRepository usuarioRepository;
+    private final ClientProcessInstanceRepository clientProcessInstanceRepository;
     private final IRealtimeEventService realtimeEventService;
+    private final IPushNotificationService pushNotificationService;
 
     public NotificationServiceImpl(
             NotificationRepository notificationRepository,
             UsuarioRepository usuarioRepository,
-            IRealtimeEventService realtimeEventService) {
+            ClientProcessInstanceRepository clientProcessInstanceRepository,
+            IRealtimeEventService realtimeEventService,
+            IPushNotificationService pushNotificationService) {
         this.notificationRepository = notificationRepository;
         this.usuarioRepository = usuarioRepository;
+        this.clientProcessInstanceRepository = clientProcessInstanceRepository;
         this.realtimeEventService = realtimeEventService;
+        this.pushNotificationService = pushNotificationService;
     }
 
     @Override
@@ -74,11 +84,29 @@ public class NotificationServiceImpl implements INotificationService {
 
     @Override
     public void notifyTaskCompleted(Map<String, Object> taskSnapshot, String completedBy) {
+        log.info("notifyTaskCompleted invocado para taskId={} completedBy={}",
+                stringValue(taskSnapshot != null ? taskSnapshot.get("id") : null),
+                safeValue(completedBy, "desconocido"));
         notifyAreaUsers(
                 taskSnapshot,
                 "Tarea completada",
                 "La tarea \"" + resolveTaskName(taskSnapshot) + "\" fue completada por " + safeValue(completedBy, "un usuario") + ".",
                 TYPE_TASK_COMPLETED);
+        notifyClientOwnerProgress(taskSnapshot, completedBy);
+    }
+
+    @Override
+    public void notifyUserByEmail(String userEmail, String title, String message, String type, String processInstanceId, String taskId) {
+        if (userEmail == null || userEmail.isBlank()) {
+            return;
+        }
+
+        Usuario usuario = usuarioRepository.findByEmail(userEmail.trim()).orElse(null);
+        if (usuario == null) {
+            return;
+        }
+
+        createNotification(usuario, title, message, type, processInstanceId, taskId);
     }
 
     public void notifyAiAnalysisForAdmins(
@@ -160,6 +188,49 @@ public class NotificationServiceImpl implements INotificationService {
         }
     }
 
+    private void notifyClientOwnerProgress(Map<String, Object> taskSnapshot, String completedBy) {
+        if (taskSnapshot == null || taskSnapshot.isEmpty()) {
+            log.debug("notifyClientOwnerProgress omitido: taskSnapshot vacio");
+            return;
+        }
+
+        String processInstanceId = stringValue(taskSnapshot.get("processInstanceId"));
+        if (processInstanceId == null || processInstanceId.isBlank()) {
+            log.debug("notifyClientOwnerProgress omitido: processInstanceId ausente para taskId={}",
+                    stringValue(taskSnapshot.get("id")));
+            return;
+        }
+
+        ClientProcessInstance clientInstance = clientProcessInstanceRepository.findByProcessInstanceId(processInstanceId.trim())
+                .orElse(null);
+        if (clientInstance == null || clientInstance.getClientEmail() == null || clientInstance.getClientEmail().isBlank()) {
+            log.debug("notifyClientOwnerProgress omitido: no existe cliente asociado a processInstanceId={}", processInstanceId.trim());
+            return;
+        }
+
+        if (completedBy != null && !completedBy.isBlank()
+                && completedBy.trim().equalsIgnoreCase(clientInstance.getClientEmail().trim())) {
+            log.debug("notifyClientOwnerProgress omitido: completedBy coincide con el cliente owner processInstanceId={} clientEmail={}",
+                    processInstanceId.trim(), clientInstance.getClientEmail().trim());
+            return;
+        }
+
+        String processName = safeValue(stringValue(taskSnapshot.get("nombreProceso")), "Tu tramite");
+        String taskName = resolveTaskName(taskSnapshot);
+        log.info("notifyClientOwnerProgress enviando a clientEmail={} processInstanceId={} taskId={}",
+                clientInstance.getClientEmail().trim(),
+                processInstanceId.trim(),
+                stringValue(taskSnapshot.get("id")));
+        String message = "Se completo la tarea \"" + taskName + "\" en \"" + processName + "\".";
+        createNotificationByEmail(
+                clientInstance.getClientEmail(),
+                "Tu tramite avanza",
+                message,
+                TYPE_PROCESS_UPDATED,
+                processInstanceId.trim(),
+                stringValue(taskSnapshot.get("id")));
+    }
+
     private void createNotification(
             Usuario usuario,
             String title,
@@ -183,15 +254,49 @@ public class NotificationServiceImpl implements INotificationService {
                 .relatedTaskId(taskId)
                 .build();
 
-        notificationRepository.save(notification);
-        log.info("Notificacion creada para usuario={} tipo={}", notification.getUserEmail(), notification.getType());
+        Notification savedNotification = notificationRepository.save(notification);
+        log.info("Notificacion creada para usuario={} tipo={}", savedNotification.getUserEmail(), savedNotification.getType());
+        if (pushNotificationService == null) {
+            log.warn("Push no enviado porque el servicio de push no esta disponible para usuario={}", savedNotification.getUserEmail());
+        }
         realtimeEventService.publishNotificationEvent(
-                notification.getUserId(),
-                notification.getUserEmail(),
-                notification.getTitle(),
-                notification.getMessage(),
-                notification.getRelatedProcessInstanceId(),
-                notification.getRelatedTaskId());
+                savedNotification.getUserId(),
+                savedNotification.getUserEmail(),
+                savedNotification.getTitle(),
+                savedNotification.getMessage(),
+                savedNotification.getRelatedProcessInstanceId(),
+                savedNotification.getRelatedTaskId());
+        if (pushNotificationService != null) {
+            log.info("Intentando enviar push a usuario={} titulo={} processInstanceId={} taskId={}",
+                    usuario.getEmail(),
+                    savedNotification.getTitle(),
+                    savedNotification.getRelatedProcessInstanceId(),
+                    savedNotification.getRelatedTaskId());
+            pushNotificationService.sendToUser(
+                    usuario,
+                    savedNotification.getTitle(),
+                    savedNotification.getMessage(),
+                    buildPushData(savedNotification));
+        }
+    }
+
+    private void createNotificationByEmail(
+            String userEmail,
+            String title,
+            String message,
+            String type,
+            String processInstanceId,
+            String taskId) {
+        if (userEmail == null || userEmail.isBlank()) {
+            return;
+        }
+
+        Usuario usuario = usuarioRepository.findByEmail(userEmail.trim()).orElse(null);
+        if (usuario == null) {
+            return;
+        }
+
+        createNotification(usuario, title, message, type, processInstanceId, taskId);
     }
 
     private NotificationResponseDto toDto(Notification notification) {
@@ -232,6 +337,25 @@ public class NotificationServiceImpl implements INotificationService {
 
     private String safeValue(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private Map<String, String> buildPushData(Notification notification) {
+        Map<String, String> data = new java.util.LinkedHashMap<>();
+        putIfText(data, "title", notification.getTitle());
+        putIfText(data, "message", notification.getMessage());
+        putIfText(data, "type", notification.getType());
+        putIfText(data, "processInstanceId", notification.getRelatedProcessInstanceId());
+        putIfText(data, "taskId", notification.getRelatedTaskId());
+        putIfText(data, "notificationId", notification.getId());
+        return data;
+    }
+
+    private void putIfText(Map<String, String> data, String key, String value) {
+        if (data == null || key == null || key.isBlank() || value == null || value.isBlank()) {
+            return;
+        }
+
+        data.put(key.trim(), value.trim());
     }
 
     private String stringValue(Object value) {

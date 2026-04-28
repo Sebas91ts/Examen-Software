@@ -48,6 +48,8 @@ public class Usuario implements UserDetails {
     // Roles del usuario (ej: ROLE_ADMIN, ROLE_USER, ROLE_BPM_MANAGER)
     private List<String> roles;
 
+    private List<String> pushTokens;
+
     private Boolean activo;
 
     @CreatedDate

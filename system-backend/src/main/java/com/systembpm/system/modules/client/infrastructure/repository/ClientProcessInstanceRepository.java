@@ -9,4 +9,5 @@ import java.util.List;
 public interface ClientProcessInstanceRepository extends MongoRepository<ClientProcessInstance, String> {
     List<ClientProcessInstance> findByClientUserIdOrderByStartedAtDesc(String clientUserId);
     Optional<ClientProcessInstance> findByProcessInstanceIdAndClientEmail(String processInstanceId, String clientEmail);
+    Optional<ClientProcessInstance> findByProcessInstanceId(String processInstanceId);
 }

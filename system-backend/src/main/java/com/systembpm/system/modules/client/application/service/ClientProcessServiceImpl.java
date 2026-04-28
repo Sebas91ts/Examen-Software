@@ -156,6 +156,13 @@ public class ClientProcessServiceImpl implements ClientProcessService {
                 .build();
 
         ClientProcessInstance saved = clientProcessInstanceRepository.save(instance);
+        notificationService.notifyUserByEmail(
+                cliente.getEmail(),
+                "Tu tramite fue iniciado",
+                "El tramite \"" + proceso.getNombre() + "\" se inicio correctamente y ya puedes revisar su seguimiento.",
+                "PROCESS_STARTED",
+                processInstanceId,
+                null);
 
         try {
             log.debug("Buscando primera tarea de instancia cliente processInstanceId={}", processInstanceId);

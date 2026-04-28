@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.OffsetDateTime;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -163,12 +165,22 @@ public class TaskExecutionLogServiceImpl implements ITaskExecutionLogService {
 
         try {
             return OffsetDateTime.parse(created).toLocalDateTime();
-        } catch (Exception ex) {
+        } catch (DateTimeParseException ex) {
             try {
                 return LocalDateTime.parse(created.replace("Z", ""));
-            } catch (Exception nestedEx) {
-                log.debug("No se pudo parsear createdAt de la tarea: {}", created, nestedEx);
-                return null;
+            } catch (DateTimeParseException nestedEx) {
+                try {
+                    return OffsetDateTime.parse(created, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ"))
+                            .toLocalDateTime();
+                } catch (DateTimeParseException patternEx) {
+                    try {
+                        return OffsetDateTime.parse(created, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ"))
+                                .toLocalDateTime();
+                    } catch (DateTimeParseException finalEx) {
+                        log.debug("No se pudo parsear createdAt de la tarea: {}", created, finalEx);
+                        return null;
+                    }
+                }
             }
         }
     }
