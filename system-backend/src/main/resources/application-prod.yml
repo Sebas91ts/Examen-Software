@@ -19,6 +19,9 @@ camunda:
       create: All tasks
     webapp:
       index-redirect-enabled: true
+    generic-properties:
+      properties:
+        historyTimeToLive: P30D
 
 app:
   push:

@@ -32,7 +32,6 @@ public class UsuarioMapper {
                 .password(dto.getPassword()) // Se encriptará en el Service
                 .areaId(normalizeAreaId(dto.getAreaId()))
                 .areaNombre(resolveAreaName(dto.getAreaId()))
-                .roles(List.of("ROLE_USER")) // Rol por defecto
                 .activo(true)
                 .build();
     }

@@ -1,6 +1,7 @@
 package com.systembpm.system.modules.user.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
+import com.systembpm.system.modules.user.application.dto.UsuarioCreateDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioResponseDto;
 import com.systembpm.system.modules.user.application.dto.UsuarioUpdateDto;
 import com.systembpm.system.modules.user.application.service.IUsuarioService;
@@ -24,6 +25,19 @@ import java.util.List;
 public class UsuarioController {
 
     private final IUsuarioService usuarioService;
+
+    /**
+     * Crea un usuario desde el panel administrativo.
+     * POST /api/users
+     */
+    @PostMapping
+    public ResponseEntity<ApiResponse<UsuarioResponseDto>> crearUsuario(
+            @Valid @RequestBody UsuarioCreateDto dto) {
+        log.info("Solicitud POST /api/users para email: {}", dto.getEmail());
+        UsuarioResponseDto usuarioCreado = usuarioService.crearUsuarioComoAdmin(dto);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Usuario creado exitosamente", usuarioCreado));
+    }
 
     /**
      * Lista todos los usuarios del sistema.

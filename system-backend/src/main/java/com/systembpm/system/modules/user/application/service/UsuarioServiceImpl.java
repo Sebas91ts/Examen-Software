@@ -44,10 +44,30 @@ public class UsuarioServiceImpl implements IUsuarioService {
         Usuario usuario = usuarioMapper.toEntity(dto);
         usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
         asignarAreaSiCorresponde(usuario, dto.getAreaId());
-        aplicarRolesPermitidos(usuario, dto.getRoles(), false);
+        usuario.setRoles(List.of("ROLE_CLIENT"));
 
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
         log.info("Usuario registrado exitosamente con ID: {}", usuarioGuardado.getId());
+
+        return usuarioMapper.toResponseDto(usuarioGuardado);
+    }
+
+    @Override
+    public UsuarioResponseDto crearUsuarioComoAdmin(UsuarioCreateDto dto) {
+        log.info("Creando usuario desde admin con email: {}", dto.getEmail());
+
+        if (usuarioRepository.existsByEmail(dto.getEmail())) {
+            log.warn("Intento de alta administrativa con email duplicado: {}", dto.getEmail());
+            throw new IllegalArgumentException("El email ya esta registrado en el sistema");
+        }
+
+        Usuario usuario = usuarioMapper.toEntity(dto);
+        usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
+        asignarAreaSiCorresponde(usuario, dto.getAreaId());
+        usuario.setRoles(sanitizedAdminRoles(dto.getRoles()));
+
+        Usuario usuarioGuardado = usuarioRepository.save(usuario);
+        log.info("Usuario creado por admin exitosamente con ID: {}", usuarioGuardado.getId());
 
         return usuarioMapper.toResponseDto(usuarioGuardado);
     }
@@ -165,6 +185,10 @@ public class UsuarioServiceImpl implements IUsuarioService {
         }
 
         usuario.setRoles(isAdmin ? sanitizedRoles : List.of("ROLE_USER"));
+    }
+
+    private List<String> sanitizedAdminRoles(List<String> requestedRoles) {
+        return List.of("ROLE_USER");
     }
 
     private List<String> sanitizeRoles(List<String> requestedRoles) {

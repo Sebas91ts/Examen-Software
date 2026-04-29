@@ -47,7 +47,7 @@ public class CamundaServiceImpl implements CamundaService {
     private final AuthService authService;
     private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
 
-    @Value("${camunda.base-url}")
+    @Value("${CAMUNDA_BASE_URL:${camunda.base-url:http://localhost:8081/engine-rest}}")
     private String camundaBaseUrl;
 
     @Override

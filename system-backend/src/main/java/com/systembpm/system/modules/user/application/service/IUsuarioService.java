@@ -23,6 +23,14 @@ public interface IUsuarioService {
     UsuarioResponseDto registrarUsuario(UsuarioCreateDto dto);
 
     /**
+     * Crea un usuario desde el panel administrativo.
+     *
+     * @param dto Datos del usuario a crear
+     * @return El usuario creado (sin contraseña)
+     */
+    UsuarioResponseDto crearUsuarioComoAdmin(UsuarioCreateDto dto);
+
+    /**
      * Obtiene todos los usuarios del sistema.
      * 
      * @return Lista de usuarios
