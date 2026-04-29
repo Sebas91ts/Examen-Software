@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -40,6 +41,7 @@ import java.io.StringReader;
 @Service
 @RequiredArgsConstructor
 public class CamundaServiceImpl implements CamundaService {
+    private static final String ESTADO_PUBLICADO = "PUBLICADO";
 
     private final RestTemplate restTemplate;
     private final ProcesoRepository procesoRepository;
@@ -55,7 +57,7 @@ public class CamundaServiceImpl implements CamundaService {
         Proceso proceso = procesoRepository.findById(procesoId)
                 .orElseThrow(() -> new IllegalArgumentException("Proceso no encontrado con ID: " + procesoId));
 
-        String xmlSanitizado = bpmnXmlSanitizerService.sanitize(proceso.getXml());
+        String xmlSanitizado = prepareDeploymentXml(proceso);
         if (xmlSanitizado == null || xmlSanitizado.isBlank()) {
             throw new IllegalArgumentException("El proceso no contiene XML BPMN valido");
         }
@@ -109,21 +111,10 @@ public class CamundaServiceImpl implements CamundaService {
             throw new IllegalArgumentException("El processKey es obligatorio");
         }
 
-        try {
-            Map<String, Object> body = businessKey == null || businessKey.isBlank()
-                    ? Map.of()
-                    : Map.of("businessKey", businessKey);
-
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    camundaBaseUrl + "/process-definition/key/" + processKey + "/start",
-                    HttpMethod.POST,
-                    new HttpEntity<>(body),
-                    new ParameterizedTypeReference<>() {
-                    });
-            return response.getBody() != null ? response.getBody() : Map.of();
-        } catch (HttpStatusCodeException ex) {
-            throw new IllegalArgumentException("Camunda rechazo el inicio de instancia: " + ex.getResponseBodyAsString(), ex);
-        }
+        Map<String, Object> body = businessKey == null || businessKey.isBlank()
+                ? Map.of()
+                : Map.of("businessKey", businessKey);
+        return iniciarInstanciaConRecuperacion(processKey.trim(), body);
     }
 
     @Override
@@ -132,23 +123,12 @@ public class CamundaServiceImpl implements CamundaService {
             throw new IllegalArgumentException("El processKey es obligatorio");
         }
 
-        try {
-            Map<String, Object> body = new java.util.LinkedHashMap<>();
-            Map<String, Object> normalizedVariables = normalizeVariables(variables);
-            if (!normalizedVariables.isEmpty()) {
-                body.put("variables", normalizedVariables);
-            }
-
-            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
-                    camundaBaseUrl + "/process-definition/key/" + processKey + "/start",
-                    HttpMethod.POST,
-                    new HttpEntity<>(body),
-                    new ParameterizedTypeReference<>() {
-                    });
-            return response.getBody() != null ? response.getBody() : Map.of();
-        } catch (HttpStatusCodeException ex) {
-            throw new IllegalArgumentException("Camunda rechazo el inicio de instancia: " + ex.getResponseBodyAsString(), ex);
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        Map<String, Object> normalizedVariables = normalizeVariables(variables);
+        if (!normalizedVariables.isEmpty()) {
+            body.put("variables", normalizedVariables);
         }
+        return iniciarInstanciaConRecuperacion(processKey.trim(), body);
     }
 
     @Override
@@ -490,6 +470,60 @@ public class CamundaServiceImpl implements CamundaService {
         return value != null ? value.trim() : null;
     }
 
+    private Map<String, Object> iniciarInstanciaConRecuperacion(String processKey, Map<String, Object> body) {
+        try {
+            return ejecutarInicioInstancia(processKey, body);
+        } catch (IllegalArgumentException ex) {
+            if (!debeReintentarDespliegue(ex)) {
+                throw ex;
+            }
+
+            Proceso procesoPublicado = encontrarProcesoPublicadoPorKey(processKey);
+            if (procesoPublicado == null) {
+                throw ex;
+            }
+
+            log.warn("No se encontro la definicion en Camunda para processKey={}. Se intentara redeploy automatico del proceso publicado {} y un nuevo intento de inicio.",
+                    processKey, procesoPublicado.getId());
+
+            desplegarProceso(procesoPublicado.getId());
+            return ejecutarInicioInstancia(processKey, body);
+        }
+    }
+
+    private Map<String, Object> ejecutarInicioInstancia(String processKey, Map<String, Object> body) {
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/process-definition/key/" + processKey + "/start",
+                    HttpMethod.POST,
+                    new HttpEntity<>(body == null ? Map.of() : body),
+                    new ParameterizedTypeReference<>() {
+                    });
+            return response.getBody() != null ? response.getBody() : Map.of();
+        } catch (HttpStatusCodeException ex) {
+            throw new IllegalArgumentException("Camunda rechazo el inicio de instancia: " + ex.getResponseBodyAsString(), ex);
+        }
+    }
+
+    private boolean debeReintentarDespliegue(IllegalArgumentException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+
+        String normalized = message.toLowerCase();
+        return normalized.contains("no matching process definition")
+                || normalized.contains("no se encontro la definicion")
+                || normalized.contains("no matching process definition with key");
+    }
+
+    private Proceso encontrarProcesoPublicadoPorKey(String processKey) {
+        return procesoRepository.findByProcessKeyOrderByVersionAsc(processKey).stream()
+                .filter(proceso -> proceso.getEstado() != null && ESTADO_PUBLICADO.equalsIgnoreCase(proceso.getEstado()))
+                .reduce((actual, siguiente) -> siguiente)
+                .orElse(null);
+    }
+
     private String extraerProcessKey(String processDefinitionId) {
         if (processDefinitionId == null || processDefinitionId.isBlank()) {
             return "";
@@ -527,6 +561,62 @@ public class CamundaServiceImpl implements CamundaService {
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
         factory.setExpandEntityReferences(false);
         return factory.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+    }
+
+    private String prepareDeploymentXml(Proceso proceso) {
+        String xmlSanitizado = bpmnXmlSanitizerService.sanitize(proceso.getXml());
+        if (xmlSanitizado == null || xmlSanitizado.isBlank()) {
+            return xmlSanitizado;
+        }
+
+        String normalizedProcessKey = stringValue(proceso.getProcessKey());
+        if (normalizedProcessKey == null || normalizedProcessKey.isBlank()) {
+            return xmlSanitizado;
+        }
+
+        try {
+            Document document = parseDocument(xmlSanitizado);
+            NodeList processNodes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "process");
+            for (int i = 0; i < processNodes.getLength(); i++) {
+                Node node = processNodes.item(i);
+                if (node instanceof Element processElement) {
+                    processElement.setAttribute("id", normalizedProcessKey.trim());
+                    processElement.setAttribute("isExecutable", "true");
+                    if (proceso.getNombre() != null && !proceso.getNombre().isBlank()) {
+                        processElement.setAttribute("name", proceso.getNombre().trim());
+                    }
+                }
+            }
+
+            NodeList participants = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "participant");
+            for (int i = 0; i < participants.getLength(); i++) {
+                Node node = participants.item(i);
+                if (node instanceof Element participantElement) {
+                    participantElement.setAttribute("processRef", normalizedProcessKey.trim());
+                    if (proceso.getNombre() != null && !proceso.getNombre().isBlank()) {
+                        participantElement.setAttribute("name", proceso.getNombre().trim());
+                    }
+                }
+            }
+
+            return serializeDocument(document);
+        } catch (Exception ex) {
+            log.warn("No se pudo alinear el processKey BPMN del proceso {} antes del despliegue. Se usara el XML sanitizado actual.", proceso.getId(), ex);
+            return xmlSanitizado;
+        }
+    }
+
+    private String serializeDocument(Document document) throws Exception {
+        javax.xml.transform.TransformerFactory factory = javax.xml.transform.TransformerFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        javax.xml.transform.Transformer transformer = factory.newTransformer();
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.OMIT_XML_DECLARATION, "no");
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.ENCODING, "UTF-8");
+        transformer.setOutputProperty(javax.xml.transform.OutputKeys.INDENT, "yes");
+
+        java.io.StringWriter writer = new java.io.StringWriter();
+        transformer.transform(new javax.xml.transform.dom.DOMSource(document), new javax.xml.transform.stream.StreamResult(writer));
+        return writer.toString();
     }
 
     private void validarExclusiveGateways(String xml) {
