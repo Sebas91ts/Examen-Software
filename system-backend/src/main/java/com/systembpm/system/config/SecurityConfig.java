@@ -66,6 +66,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/files/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/notifications/**").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/assistant").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/fill-form").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/analyze-process").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/analyses/**").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/suggestions/**").hasAnyRole("ADMIN", "BPM_MANAGER")

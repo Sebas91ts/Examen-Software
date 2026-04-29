@@ -63,6 +63,11 @@ public class AiServiceImpl implements IAiService {
     }
 
     @Override
+    public ApiResponse<?> fillForm(FormFillRequestDto request) {
+        return execute("/ai/fill-form", request, FormFillResponseDto.class, "fill form");
+    }
+
+    @Override
     public ApiResponse<?> analyzeProcess(ProcessAnalysisRequestDto request) {
         try {
             return ApiResponse.success(

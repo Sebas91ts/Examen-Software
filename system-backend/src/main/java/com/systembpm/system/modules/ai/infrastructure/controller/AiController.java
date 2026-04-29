@@ -5,6 +5,7 @@ import com.systembpm.system.modules.ai.application.dto.AnalysisRequestDto;
 import com.systembpm.system.modules.ai.application.dto.AssistantRequestDto;
 import com.systembpm.system.modules.ai.application.dto.EditDiagramRequestDto;
 import com.systembpm.system.modules.ai.application.dto.DiagramRequestDto;
+import com.systembpm.system.modules.ai.application.dto.FormFillRequestDto;
 import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisRequestDto;
 import com.systembpm.system.modules.ai.application.dto.ProcessAnalysisStatusUpdateDto;
 import com.systembpm.system.modules.ai.application.service.IAiService;
@@ -51,6 +52,12 @@ public class AiController {
     public ResponseEntity<ApiResponse<?>> editDiagram(@Valid @RequestBody EditDiagramRequestDto request) {
         log.info("Solicitud POST /api/ai/edit-diagram");
         return ResponseEntity.ok(aiService.editDiagram(request));
+    }
+
+    @PostMapping("/fill-form")
+    public ResponseEntity<ApiResponse<?>> fillForm(@Valid @RequestBody FormFillRequestDto request) {
+        log.info("Solicitud POST /api/ai/fill-form");
+        return ResponseEntity.ok(aiService.fillForm(request));
     }
 
     @PostMapping("/analyze-process")
