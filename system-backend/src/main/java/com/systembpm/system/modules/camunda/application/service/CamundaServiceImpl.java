@@ -111,6 +111,7 @@ public class CamundaServiceImpl implements CamundaService {
             throw new IllegalArgumentException("El processKey es obligatorio");
         }
 
+        asegurarProcesoPublicadoDesplegado(processKey.trim());
         Map<String, Object> body = businessKey == null || businessKey.isBlank()
                 ? Map.of()
                 : Map.of("businessKey", businessKey);
@@ -123,6 +124,7 @@ public class CamundaServiceImpl implements CamundaService {
             throw new IllegalArgumentException("El processKey es obligatorio");
         }
 
+        asegurarProcesoPublicadoDesplegado(processKey.trim());
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         Map<String, Object> normalizedVariables = normalizeVariables(variables);
         if (!normalizedVariables.isEmpty()) {
@@ -522,6 +524,17 @@ public class CamundaServiceImpl implements CamundaService {
                 .filter(proceso -> proceso.getEstado() != null && ESTADO_PUBLICADO.equalsIgnoreCase(proceso.getEstado()))
                 .reduce((actual, siguiente) -> siguiente)
                 .orElse(null);
+    }
+
+    private void asegurarProcesoPublicadoDesplegado(String processKey) {
+        Proceso procesoPublicado = encontrarProcesoPublicadoPorKey(processKey);
+        if (procesoPublicado == null) {
+            return;
+        }
+
+        log.info("Sincronizando definicion publicada antes de iniciar instancia. processKey={} procesoId={} version={}",
+                processKey, procesoPublicado.getId(), procesoPublicado.getVersion());
+        desplegarProceso(procesoPublicado.getId());
     }
 
     private String extraerProcessKey(String processDefinitionId) {

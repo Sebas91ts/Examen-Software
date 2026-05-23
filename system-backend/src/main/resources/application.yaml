@@ -89,7 +89,7 @@ spring:
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017}
-      database: ${MONGODB_DATABASE:systembpm}
+      database: ${MONGODB_DATABASE:test}
 
 logging:
   level:
