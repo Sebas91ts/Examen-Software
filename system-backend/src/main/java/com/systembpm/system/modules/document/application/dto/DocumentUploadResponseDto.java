@@ -1,12 +1,14 @@
 package com.systembpm.system.modules.document.application.dto;
 
 import com.systembpm.system.modules.document.domain.DocumentStatus;
+import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Builder
@@ -29,4 +31,17 @@ public class DocumentUploadResponseDto {
     private Instant updatedAt;
     private Instant lastAccessedAt;
     private String updatedBy;
+    private String processKey;
+    private Integer processVersion;
+    private String taskDefinitionKey;
+    private String taskInstanceId;
+    private DocumentLifecycleState documentState;
+    private Boolean locked;
+    private String lockedBy;
+    private Instant lockedAt;
+    private String approvedBy;
+    private Instant approvedAt;
+    private String rejectedBy;
+    private Instant rejectedAt;
+    private List<String> comments;
 }

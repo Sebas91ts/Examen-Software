@@ -148,7 +148,7 @@ public class CamundaController {
         }
 
         Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
-        Map<String, Object> response = camundaService.completarTarea(taskId, variables);
+        Map<String, Object> response = camundaService.completarTarea(taskId, variables, authentication.getName());
         try {
             taskExecutionLogService.registrarEjecucion(taskSnapshot, variables, authentication.getName());
         } catch (Exception ex) {

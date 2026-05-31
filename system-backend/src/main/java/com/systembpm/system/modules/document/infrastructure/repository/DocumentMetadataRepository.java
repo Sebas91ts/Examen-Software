@@ -1,6 +1,7 @@
 package com.systembpm.system.modules.document.infrastructure.repository;
 
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
+import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
@@ -19,4 +20,28 @@ public interface DocumentMetadataRepository extends MongoRepository<DocumentMeta
     Optional<DocumentMetadata> findByIdAndTenantId(String id, String tenantId);
 
     List<DocumentMetadata> findByTenantIdAndProcessInstanceIdOrderByUploadedAtDesc(String tenantId, String processInstanceId);
+
+    List<DocumentMetadata> findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyOrderByUploadedAtDesc(
+            String tenantId,
+            String processInstanceId,
+            String taskDefinitionKey
+    );
+
+    List<DocumentMetadata> findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyAndTaskInstanceIdOrderByUploadedAtDesc(
+            String tenantId,
+            String processInstanceId,
+            String taskDefinitionKey,
+            String taskInstanceId
+    );
+
+    List<DocumentMetadata> findByTenantIdAndProcessInstanceIdAndDocumentStateInOrderByUpdatedAtDesc(
+            String tenantId,
+            String processInstanceId,
+            List<DocumentLifecycleState> states
+    );
+
+    List<DocumentMetadata> findByTenantIdAndDocumentStateInOrderByUpdatedAtDesc(
+            String tenantId,
+            List<DocumentLifecycleState> states
+    );
 }

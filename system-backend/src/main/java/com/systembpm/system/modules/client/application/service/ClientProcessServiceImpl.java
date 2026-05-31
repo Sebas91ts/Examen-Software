@@ -170,7 +170,7 @@ public class ClientProcessServiceImpl implements ClientProcessService {
             if (!firstTaskSnapshot.isEmpty()) {
                 log.debug("Primera tarea encontrada para cliente processInstanceId={} taskId={} taskKey={}",
                         processInstanceId, stringValue(firstTaskSnapshot.get("id")), stringValue(firstTaskSnapshot.get("taskDefinitionKey")));
-                camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables);
+                camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables, cliente.getEmail());
                 taskExecutionLogService.registrarEjecucion(firstTaskSnapshot, normalizedVariables, cliente.getEmail());
                 notificationService.notifyTaskCompleted(firstTaskSnapshot, cliente.getEmail());
                 realtimeEventService.publishTaskCompleted(firstTaskSnapshot, cliente.getEmail());

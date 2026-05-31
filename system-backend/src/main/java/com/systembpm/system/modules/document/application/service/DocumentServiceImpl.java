@@ -4,9 +4,12 @@ import com.systembpm.system.modules.document.application.dto.DocumentDownloadUrl
 import com.systembpm.system.modules.document.application.dto.DocumentMetadataResponseDto;
 import com.systembpm.system.modules.document.application.dto.DocumentUploadRequestDto;
 import com.systembpm.system.modules.document.application.dto.DocumentUploadResponseDto;
+import com.systembpm.system.modules.document.application.dto.TaskDocumentUploadValidationRequestDto;
+import com.systembpm.system.modules.document.application.dto.TaskDocumentUploadValidationResponseDto;
 import com.systembpm.system.modules.document.application.port.out.DocumentStoragePort;
 import com.systembpm.system.modules.document.application.port.out.PresignedDownloadUrl;
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
+import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
 import com.systembpm.system.modules.document.domain.DocumentNotFoundException;
 import com.systembpm.system.modules.document.domain.DocumentRequesterNotFoundException;
 import com.systembpm.system.modules.document.domain.DocumentSizeExceededException;
@@ -43,6 +46,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentStoragePort documentStoragePort;
     private final DocumentProperties documentProperties;
     private final UsuarioRepository usuarioRepository;
+    private final TaskDocumentConfigService taskDocumentConfigService;
 
     @Override
     public DocumentUploadResponseDto upload(DocumentUploadRequestDto request, MultipartFile file, String uploadedBy) {
@@ -56,6 +60,9 @@ public class DocumentServiceImpl implements DocumentService {
         String processInstanceId = normalize(request.getProcessInstanceId());
         String originalName = normalizeFilename(file.getOriginalFilename());
         String contentType = normalizeContentType(file.getContentType());
+
+        enforceTaskDocumentRulesIfPresent(request, requester, processInstanceId, contentType, file.getSize());
+
         int version = resolveNextVersion(tenantId, processInstanceId, originalName);
         String documentId = new ObjectId().toHexString();
         String extension = resolveExtension(originalName);
@@ -85,6 +92,12 @@ public class DocumentServiceImpl implements DocumentService {
                 .createdAt(now)
                 .updatedAt(now)
                 .updatedBy(requester.getEmail())
+                .processKey(normalize(request.getProcessKey()))
+                .processVersion(request.getProcessVersion())
+                .taskDefinitionKey(normalize(request.getTaskDefinitionKey()))
+                .taskInstanceId(normalize(request.getTaskInstanceId()))
+                .documentState(DocumentLifecycleState.UPLOADED)
+                .locked(false)
                 .build();
 
         DocumentMetadata saved;
@@ -258,6 +271,42 @@ public class DocumentServiceImpl implements DocumentService {
         }
     }
 
+    private void enforceTaskDocumentRulesIfPresent(
+            DocumentUploadRequestDto request,
+            Usuario requester,
+            String processInstanceId,
+            String mimeType,
+            long size
+    ) {
+        String processKey = normalize(request.getProcessKey());
+        Integer version = request.getProcessVersion();
+        String taskDefinitionKey = normalize(request.getTaskDefinitionKey());
+        if (processKey == null || version == null || taskDefinitionKey == null) {
+            return;
+        }
+
+        TaskDocumentUploadValidationResponseDto validation = taskDocumentConfigService.validateUpload(
+                TaskDocumentUploadValidationRequestDto.builder()
+                        .processKey(processKey)
+                        .processVersion(version)
+                        .taskDefinitionKey(taskDefinitionKey)
+                        .processInstanceId(processInstanceId)
+                        .mimeType(mimeType)
+                        .size(size)
+                        .build(),
+                requester.getEmail()
+        );
+
+        if (!validation.isAllowed()) {
+            String reason = validation.getReason() == null ? "Restriccion documental" : validation.getReason();
+            // Permisos => 403, restricciones => 400
+            if (reason.toLowerCase(Locale.ROOT).contains("permiso")) {
+                throw new InvalidDocumentAccessException(reason);
+            }
+            throw new DocumentValidationException(reason);
+        }
+    }
+
     private boolean isAllowedContentType(String contentType) {
         if (contentType == null) {
             return false;
@@ -305,6 +354,19 @@ public class DocumentServiceImpl implements DocumentService {
                 .updatedAt(metadata.getUpdatedAt())
                 .lastAccessedAt(metadata.getLastAccessedAt())
                 .updatedBy(metadata.getUpdatedBy())
+                .processKey(metadata.getProcessKey())
+                .processVersion(metadata.getProcessVersion())
+                .taskDefinitionKey(metadata.getTaskDefinitionKey())
+                .taskInstanceId(metadata.getTaskInstanceId())
+                .documentState(metadata.getDocumentState())
+                .locked(metadata.getLocked())
+                .lockedBy(metadata.getLockedBy())
+                .lockedAt(metadata.getLockedAt())
+                .approvedBy(metadata.getApprovedBy())
+                .approvedAt(metadata.getApprovedAt())
+                .rejectedBy(metadata.getRejectedBy())
+                .rejectedAt(metadata.getRejectedAt())
+                .comments(metadata.getComments())
                 .build();
     }
 
@@ -326,6 +388,19 @@ public class DocumentServiceImpl implements DocumentService {
                 .updatedAt(metadata.getUpdatedAt())
                 .lastAccessedAt(metadata.getLastAccessedAt())
                 .updatedBy(metadata.getUpdatedBy())
+                .processKey(metadata.getProcessKey())
+                .processVersion(metadata.getProcessVersion())
+                .taskDefinitionKey(metadata.getTaskDefinitionKey())
+                .taskInstanceId(metadata.getTaskInstanceId())
+                .documentState(metadata.getDocumentState())
+                .locked(metadata.getLocked())
+                .lockedBy(metadata.getLockedBy())
+                .lockedAt(metadata.getLockedAt())
+                .approvedBy(metadata.getApprovedBy())
+                .approvedAt(metadata.getApprovedAt())
+                .rejectedBy(metadata.getRejectedBy())
+                .rejectedAt(metadata.getRejectedAt())
+                .comments(metadata.getComments())
                 .build();
     }
 

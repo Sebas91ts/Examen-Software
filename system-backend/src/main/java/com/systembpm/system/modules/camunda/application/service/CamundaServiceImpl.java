@@ -3,6 +3,7 @@ package com.systembpm.system.modules.camunda.application.service;
 import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
 import com.systembpm.system.modules.bpmn.application.service.BpmnXmlSanitizerService;
+import com.systembpm.system.modules.document.application.service.DocumentLifecycleService;
 import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
 import com.systembpm.system.modules.security.application.service.AuthService;
@@ -48,6 +49,7 @@ public class CamundaServiceImpl implements CamundaService {
     private final AreaRepository areaRepository;
     private final AuthService authService;
     private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
+    private final DocumentLifecycleService documentLifecycleService;
 
     @Value("${CAMUNDA_BASE_URL:${camunda.base-url:http://localhost:8081/engine-rest}}")
     private String camundaBaseUrl;
@@ -273,16 +275,22 @@ public class CamundaServiceImpl implements CamundaService {
 
     @Override
     public Map<String, Object> completarTarea(String taskId) {
-        return completarTarea(taskId, Map.of());
+        return completarTarea(taskId, Map.of(), null);
     }
 
     @Override
     public Map<String, Object> completarTarea(String taskId, Map<String, Object> variables) {
+        return completarTarea(taskId, variables, null);
+    }
+
+    @Override
+    public Map<String, Object> completarTarea(String taskId, Map<String, Object> variables, String completedBy) {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("El taskId es obligatorio");
         }
 
         try {
+            Map<String, Object> taskSnapshot = obtenerTarea(taskId);
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
             Map<String, Object> normalizedVariables = normalizeVariables(variables);
             log.info("Enviando variables a Camunda para tarea {}: {}", taskId, normalizedVariables);
@@ -296,6 +304,11 @@ public class CamundaServiceImpl implements CamundaService {
                     new HttpEntity<>(payload),
                     new ParameterizedTypeReference<>() {
                     });
+            try {
+                documentLifecycleService.onTaskCompleted(taskSnapshot, completedBy);
+            } catch (RuntimeException ex) {
+                log.warn("No se pudo actualizar lifecycle documental para tarea {}. La tarea ya fue completada en Camunda.", taskId, ex);
+            }
             return response.getBody() != null ? response.getBody() : Map.of();
         } catch (HttpStatusCodeException ex) {
             throw new IllegalArgumentException("Camunda rechazo la finalizacion de la tarea: " + ex.getResponseBodyAsString(), ex);
