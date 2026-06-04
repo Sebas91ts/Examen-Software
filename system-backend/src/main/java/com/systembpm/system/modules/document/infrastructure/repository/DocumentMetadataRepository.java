@@ -44,4 +44,8 @@ public interface DocumentMetadataRepository extends MongoRepository<DocumentMeta
             String tenantId,
             List<DocumentLifecycleState> states
     );
+
+    List<DocumentMetadata> findByTenantIdAndFolderIdOrderByUploadedAtDesc(String tenantId, String folderId);
+
+    Optional<DocumentMetadata> findByOnlyOfficeDocumentKey(String onlyOfficeDocumentKey);
 }

@@ -44,4 +44,13 @@ public class DocumentMetadataResponseDto {
     private String rejectedBy;
     private Instant rejectedAt;
     private List<String> comments;
+    private String folderId;
+    private List<String> tagIds;
+    private List<TagResponseDto> tags;
+    private Boolean editable;
+    private Boolean collaborativeEditing;
+    private String onlyOfficeDocumentKey;
+    private String templateDocumentId;
+    private String currentEditor;
+    private Instant editingStartedAt;
 }

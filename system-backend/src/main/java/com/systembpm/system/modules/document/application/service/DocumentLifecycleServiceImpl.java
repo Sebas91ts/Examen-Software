@@ -325,6 +325,14 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
                 .rejectedBy(metadata.getRejectedBy())
                 .rejectedAt(metadata.getRejectedAt())
                 .comments(metadata.getComments())
+                .folderId(metadata.getFolderId())
+                .tagIds(metadata.getTagIds())
+                .editable(metadata.getEditable())
+                .collaborativeEditing(metadata.getCollaborativeEditing())
+                .onlyOfficeDocumentKey(metadata.getOnlyOfficeDocumentKey())
+                .templateDocumentId(metadata.getTemplateDocumentId())
+                .currentEditor(metadata.getCurrentEditor())
+                .editingStartedAt(metadata.getEditingStartedAt())
                 .build();
     }
 

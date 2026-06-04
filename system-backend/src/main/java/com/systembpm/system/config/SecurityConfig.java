@@ -35,6 +35,7 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/onlyoffice/**").permitAll()
                 .requestMatchers(
                         "/camunda",
                         "/camunda/**",

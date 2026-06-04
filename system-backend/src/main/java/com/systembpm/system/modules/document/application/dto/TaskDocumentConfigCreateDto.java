@@ -26,14 +26,15 @@ public class TaskDocumentConfigCreateDto {
 
     private Boolean required;
     private Boolean editable;
+    private Boolean allowEditing;
     private Boolean collaborativeEditing;
     private Boolean allowVersioning;
     private List<String> allowedMimeTypes;
     private Long maxFileSizeBytes;
     private Integer maxFiles;
     private Boolean readOnlyAfterComplete;
+    private Boolean requireApproval;
     private String templateDocumentId;
     private TaskDocumentPermissionsDto permissions;
     private Boolean autoGenerateOnTaskStart;
 }
-

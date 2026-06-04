@@ -29,4 +29,6 @@ public class DocumentUploadRequestDto {
     private String taskDefinitionKey;
 
     private String taskInstanceId;
+
+    private String folderId;
 }

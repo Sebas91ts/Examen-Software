@@ -20,6 +20,7 @@ import com.systembpm.system.modules.document.domain.DocumentValidationException;
 import com.systembpm.system.modules.document.domain.InvalidDocumentAccessException;
 import com.systembpm.system.modules.document.infrastructure.config.DocumentProperties;
 import com.systembpm.system.modules.document.infrastructure.repository.DocumentMetadataRepository;
+import com.systembpm.system.modules.document.infrastructure.repository.FolderRepository;
 import com.systembpm.system.modules.user.domain.Usuario;
 import com.systembpm.system.modules.user.infrastructure.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentProperties documentProperties;
     private final UsuarioRepository usuarioRepository;
     private final TaskDocumentConfigService taskDocumentConfigService;
+    private final FolderRepository folderRepository;
 
     @Override
     public DocumentUploadResponseDto upload(DocumentUploadRequestDto request, MultipartFile file, String uploadedBy) {
@@ -60,6 +62,7 @@ public class DocumentServiceImpl implements DocumentService {
         String processInstanceId = normalize(request.getProcessInstanceId());
         String originalName = normalizeFilename(file.getOriginalFilename());
         String contentType = normalizeContentType(file.getContentType());
+        String folderId = validateAndResolveFolderId(request, tenantId);
 
         enforceTaskDocumentRulesIfPresent(request, requester, processInstanceId, contentType, file.getSize());
 
@@ -98,6 +101,7 @@ public class DocumentServiceImpl implements DocumentService {
                 .taskInstanceId(normalize(request.getTaskInstanceId()))
                 .documentState(DocumentLifecycleState.UPLOADED)
                 .locked(false)
+                .folderId(folderId)
                 .build();
 
         DocumentMetadata saved;
@@ -367,6 +371,14 @@ public class DocumentServiceImpl implements DocumentService {
                 .rejectedBy(metadata.getRejectedBy())
                 .rejectedAt(metadata.getRejectedAt())
                 .comments(metadata.getComments())
+                .folderId(metadata.getFolderId())
+                .tagIds(metadata.getTagIds())
+                .editable(metadata.getEditable())
+                .collaborativeEditing(metadata.getCollaborativeEditing())
+                .onlyOfficeDocumentKey(metadata.getOnlyOfficeDocumentKey())
+                .templateDocumentId(metadata.getTemplateDocumentId())
+                .currentEditor(metadata.getCurrentEditor())
+                .editingStartedAt(metadata.getEditingStartedAt())
                 .build();
     }
 
@@ -401,7 +413,26 @@ public class DocumentServiceImpl implements DocumentService {
                 .rejectedBy(metadata.getRejectedBy())
                 .rejectedAt(metadata.getRejectedAt())
                 .comments(metadata.getComments())
+                .folderId(metadata.getFolderId())
+                .tagIds(metadata.getTagIds())
+                .editable(metadata.getEditable())
+                .collaborativeEditing(metadata.getCollaborativeEditing())
+                .onlyOfficeDocumentKey(metadata.getOnlyOfficeDocumentKey())
+                .templateDocumentId(metadata.getTemplateDocumentId())
+                .currentEditor(metadata.getCurrentEditor())
+                .editingStartedAt(metadata.getEditingStartedAt())
                 .build();
+    }
+
+    private String validateAndResolveFolderId(DocumentUploadRequestDto request, String tenantId) {
+        String folderId = normalize(request.getFolderId());
+        if (folderId == null) {
+            return null;
+        }
+        if (!folderRepository.existsByIdAndTenantIdAndActiveTrue(folderId, tenantId)) {
+            throw new DocumentValidationException("folderId no existe o no pertenece a tu tenant");
+        }
+        return folderId;
     }
 
     private String buildStoredFileName(String documentId, int version, String extension) {

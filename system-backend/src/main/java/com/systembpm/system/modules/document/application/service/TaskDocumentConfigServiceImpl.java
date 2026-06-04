@@ -61,12 +61,14 @@ public class TaskDocumentConfigServiceImpl implements TaskDocumentConfigService 
         toSave.setTaskDefinitionKey(taskDefinitionKey);
         toSave.setRequired(Boolean.TRUE.equals(dto.getRequired()));
         toSave.setEditable(dto.getEditable());
+        toSave.setAllowEditing(dto.getAllowEditing());
         toSave.setCollaborativeEditing(dto.getCollaborativeEditing());
         toSave.setAllowVersioning(dto.getAllowVersioning());
         toSave.setAllowedMimeTypes(normalizeMimeTypes(dto.getAllowedMimeTypes()));
         toSave.setMaxFileSizeBytes(dto.getMaxFileSizeBytes());
         toSave.setMaxFiles(dto.getMaxFiles());
         toSave.setReadOnlyAfterComplete(dto.getReadOnlyAfterComplete());
+        toSave.setRequireApproval(dto.getRequireApproval());
         toSave.setTemplateDocumentId(dto.getTemplateDocumentId());
         toSave.setPermissions(mapPermissions(dto.getPermissions()));
         toSave.setAutoGenerateOnTaskStart(dto.getAutoGenerateOnTaskStart());
@@ -274,12 +276,14 @@ public class TaskDocumentConfigServiceImpl implements TaskDocumentConfigService 
                 .taskDefinitionKey(config.getTaskDefinitionKey())
                 .required(config.getRequired())
                 .editable(config.getEditable())
+                .allowEditing(config.getAllowEditing())
                 .collaborativeEditing(config.getCollaborativeEditing())
                 .allowVersioning(config.getAllowVersioning())
                 .allowedMimeTypes(config.getAllowedMimeTypes())
                 .maxFileSizeBytes(config.getMaxFileSizeBytes())
                 .maxFiles(config.getMaxFiles())
                 .readOnlyAfterComplete(config.getReadOnlyAfterComplete())
+                .requireApproval(config.getRequireApproval())
                 .templateDocumentId(config.getTemplateDocumentId())
                 .permissions(permissions == null ? null : TaskDocumentPermissionsDto.builder()
                         .canView(permissions.getCanView())

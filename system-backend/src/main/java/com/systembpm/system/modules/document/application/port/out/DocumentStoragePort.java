@@ -7,7 +7,11 @@ public interface DocumentStoragePort {
 
     void upload(String key, String contentType, long size, InputStream inputStream);
 
+    byte[] download(String key);
+
     void delete(String key);
 
     PresignedDownloadUrl generateDownloadUrl(String key, String downloadFileName, Duration expiration);
+
+    PresignedDownloadUrl generateObjectUrl(String key, Duration expiration);
 }

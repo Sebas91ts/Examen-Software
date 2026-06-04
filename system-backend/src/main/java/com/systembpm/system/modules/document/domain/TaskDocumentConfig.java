@@ -38,6 +38,8 @@ public class TaskDocumentConfig {
 
     private Boolean editable;
 
+    private Boolean allowEditing;
+
     private Boolean collaborativeEditing;
 
     private Boolean allowVersioning;
@@ -49,6 +51,8 @@ public class TaskDocumentConfig {
     private Integer maxFiles;
 
     private Boolean readOnlyAfterComplete;
+
+    private Boolean requireApproval;
 
     private String templateDocumentId;
 
@@ -64,4 +68,3 @@ public class TaskDocumentConfig {
 
     private String updatedBy;
 }
-

@@ -51,6 +51,12 @@ jwt:
 camunda:
   base-url: ${CAMUNDA_BASE_URL:http://localhost:8081/engine-rest}
 
+onlyoffice:
+  enabled: ${ONLYOFFICE_ENABLED:false}
+  document-server-url: ${ONLYOFFICE_DOCUMENT_SERVER_URL:http://localhost:8082}
+  jwt-secret: ${ONLYOFFICE_JWT_SECRET:}
+  callback-url: ${ONLYOFFICE_CALLBACK_URL:http://localhost:8080/api/onlyoffice/callback}
+
 fastapi:
   base-url: ${FASTAPI_BASE_URL:http://localhost:8000}
 
