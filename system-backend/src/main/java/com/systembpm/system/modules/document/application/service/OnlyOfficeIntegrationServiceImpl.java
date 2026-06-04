@@ -5,17 +5,14 @@ import com.systembpm.system.modules.document.application.dto.OnlyOfficeCallbackR
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeEditingSessionResponseDto;
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeEditorConfigResponseDto;
 import com.systembpm.system.modules.document.application.port.out.DocumentStoragePort;
-import com.systembpm.system.modules.document.application.port.out.PresignedDownloadUrl;
 import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
 import com.systembpm.system.modules.document.domain.DocumentNotFoundException;
 import com.systembpm.system.modules.document.domain.DocumentRequesterNotFoundException;
-import com.systembpm.system.modules.document.domain.DocumentStatus;
 import com.systembpm.system.modules.document.domain.DocumentTenantAccessDeniedException;
 import com.systembpm.system.modules.document.domain.DocumentValidationException;
 import com.systembpm.system.modules.document.domain.InvalidDocumentAccessException;
 import com.systembpm.system.modules.document.domain.TaskDocumentConfig;
-import com.systembpm.system.modules.document.infrastructure.config.DocumentProperties;
 import com.systembpm.system.modules.document.infrastructure.config.OnlyOfficeProperties;
 import com.systembpm.system.modules.document.infrastructure.repository.DocumentMetadataRepository;
 import com.systembpm.system.modules.document.infrastructure.repository.TaskDocumentConfigRepository;
@@ -25,7 +22,6 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.bson.types.ObjectId;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -35,7 +31,6 @@ import javax.crypto.SecretKey;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,7 +52,6 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
     private final TaskDocumentConfigRepository taskDocumentConfigRepository;
     private final UsuarioRepository usuarioRepository;
     private final DocumentStoragePort documentStoragePort;
-    private final DocumentProperties documentProperties;
     private final OnlyOfficeProperties onlyOfficeProperties;
     private final RestTemplate restTemplate;
 
@@ -200,9 +194,20 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
             log.warn("onlyoffice.callback.save-error tenantId={} documentId={} status={}", document.getTenantId(), document.getId(), status);
             return callbackOk("OnlyOffice reporto error de guardado");
         }
-        if (status == STATUS_READY_TO_SAVE || status == STATUS_FORCE_SAVE) {
-            persistNewVersion(document, request);
-            return callbackOk("Nueva version documental persistida");
+        if (status == STATUS_READY_TO_SAVE) {
+            try {
+                overwriteCurrentS3Object(document, request);
+                return callbackOk("Documento sobrescrito en S3 correctamente");
+            } catch (Exception ex) {
+                log.error("onlyoffice.callback.persist-error tenantId={} documentId={} documentKey={} status={} urlPresent={}",
+                        document.getTenantId(), document.getId(), request.getKey(), status, hasText(request.getUrl()), ex);
+                return callbackError("No se pudo persistir el documento editado");
+            }
+        }
+        if (status == STATUS_FORCE_SAVE) {
+            log.info("onlyoffice.callback.force-save-ack tenantId={} documentId={} documentKey={} urlPresent={} reason=skip-s3-overwrite-while-session-active",
+                    document.getTenantId(), document.getId(), request.getKey(), hasText(request.getUrl()));
+            return callbackOk("Guardado forzado reconocido sin sobrescribir archivo activo");
         }
         return callbackOk("Estado OnlyOffice no persistente procesado");
     }
@@ -280,64 +285,32 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         return baseUrl + "/api/onlyoffice/documents/" + document.getId() + "/content?token=" + token;
     }
 
-    private void persistNewVersion(DocumentMetadata current, OnlyOfficeCallbackRequestDto request) {
+    private void overwriteCurrentS3Object(DocumentMetadata current, OnlyOfficeCallbackRequestDto request) {
         if (!hasText(request.getUrl())) {
             throw new DocumentValidationException("OnlyOffice no envio URL para descargar la version modificada");
         }
+        log.info("onlyoffice.save.download-start tenantId={} documentId={} documentKey={} url={}",
+                current.getTenantId(), current.getId(), current.getOnlyOfficeDocumentKey(), request.getUrl());
+
         ResponseEntity<byte[]> response = restTemplate.exchange(URI.create(request.getUrl()), HttpMethod.GET, null, byte[].class);
         byte[] content = response.getBody();
         if (content == null || content.length == 0) {
             throw new DocumentValidationException("OnlyOffice devolvio un archivo vacio");
         }
+        log.info("onlyoffice.save.download-success tenantId={} documentId={} bytes={}",
+                current.getTenantId(), current.getId(), content.length);
 
-        int nextVersion = current.getVersion() == null ? 1 : current.getVersion() + 1;
-        String documentId = new ObjectId().toHexString();
-        String extension = resolveExtension(current.getOriginalName());
-        String fileName = documentId + "-v" + nextVersion + (extension.isBlank() ? "" : "." + extension);
-        String s3Key = current.getTenantId() + "/" + current.getProcessInstanceId() + "/" + documentId + "/" + nextVersion + "/" + fileName;
-        documentStoragePort.upload(s3Key, current.getMimeType(), content.length, new ByteArrayInputStream(content));
-
+        documentStoragePort.upload(current.getS3Key(), current.getMimeType(), content.length, new ByteArrayInputStream(content));
         Instant now = Instant.now();
-        DocumentMetadata next = DocumentMetadata.builder()
-                .id(documentId)
-                .tenantId(current.getTenantId())
-                .processInstanceId(current.getProcessInstanceId())
-                .fileName(fileName)
-                .originalName(current.getOriginalName())
-                .mimeType(current.getMimeType())
-                .size((long) content.length)
-                .s3Key(s3Key)
-                .uploadedBy(current.getUploadedBy())
-                .uploadedAt(now)
-                .version(nextVersion)
-                .status(DocumentStatus.ACTIVE)
-                .createdAt(now)
-                .updatedAt(now)
-                .lastAccessedAt(null)
-                .updatedBy(resolveCallbackEditor(current, request))
-                .processKey(current.getProcessKey())
-                .processVersion(current.getProcessVersion())
-                .taskDefinitionKey(current.getTaskDefinitionKey())
-                .taskInstanceId(current.getTaskInstanceId())
-                .documentState(current.getDocumentState())
-                .locked(current.getLocked())
-                .lockedBy(current.getLockedBy())
-                .lockedAt(current.getLockedAt())
-                .comments(current.getComments())
-                .folderId(current.getFolderId())
-                .tagIds(current.getTagIds())
-                .editable(current.getEditable())
-                .collaborativeEditing(current.getCollaborativeEditing())
-                .templateDocumentId(current.getTemplateDocumentId())
-                .onlyOfficeDocumentKey(buildDocumentKey(current.getTenantId(), documentId, nextVersion))
-                .currentEditor(null)
-                .editingStartedAt(null)
-                .build();
-        documentMetadataRepository.save(next);
+        current.setSize((long) content.length);
+        current.setUpdatedAt(now);
+        current.setUpdatedBy(resolveCallbackEditor(current, request));
+        current.setCurrentEditor(null);
+        current.setEditingStartedAt(null);
+        DocumentMetadata saved = documentMetadataRepository.save(current);
 
-        clearEditingSession(current, next.getUpdatedBy());
-        log.info("onlyoffice.version-created tenantId={} previousDocumentId={} newDocumentId={} version={} size={}",
-                current.getTenantId(), current.getId(), next.getId(), next.getVersion(), next.getSize());
+        log.info("onlyoffice.save.upload-success tenantId={} documentId={} s3Key={} bytes={} updatedBy={} versionUnchanged={}",
+                saved.getTenantId(), saved.getId(), saved.getS3Key(), saved.getSize(), saved.getUpdatedBy(), saved.getVersion());
     }
 
     private void clearEditingSession(DocumentMetadata document, String updatedBy) {
@@ -480,17 +453,11 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
     }
 
     private OnlyOfficeCallbackResponseDto callbackOk(String message) {
-        return OnlyOfficeCallbackResponseDto.builder().error(0).message(message).build();
+        return OnlyOfficeCallbackResponseDto.builder().error(0).build();
     }
 
     private OnlyOfficeCallbackResponseDto callbackError(String message) {
         return OnlyOfficeCallbackResponseDto.builder().error(1).message(message).build();
-    }
-
-    private long resolveSignedUrlMinutes() {
-        return documentProperties.signedUrl() != null && documentProperties.signedUrl().expirationMinutes() > 0
-                ? documentProperties.signedUrl().expirationMinutes()
-                : 15;
     }
 
     private String resolveCallbackEditor(DocumentMetadata document, OnlyOfficeCallbackRequestDto request) {
@@ -528,11 +495,6 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
             return "";
         }
         return originalName.substring(originalName.lastIndexOf('.') + 1).toLowerCase();
-    }
-
-    private String resolveExtension(String originalName) {
-        String fileType = resolveFileType(originalName);
-        return fileType == null ? "" : fileType.replaceAll("[^a-zA-Z0-9]", "");
     }
 
     private String sanitizeBaseUrl(String value) {
