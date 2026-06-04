@@ -12,11 +12,15 @@ public interface FolderRepository extends MongoRepository<Folder, String> {
 
     List<Folder> findByTenantIdAndActiveTrueOrderByNameAsc(String tenantId);
 
+    List<Folder> findByActiveTrueOrderByNameAsc();
+
     List<Folder> findByTenantIdAndParentFolderIdAndActiveTrueOrderByNameAsc(String tenantId, String parentFolderId);
 
     List<Folder> findByTenantIdAndParentFolderIdIsNullAndActiveTrueOrderByNameAsc(String tenantId);
 
     Optional<Folder> findByIdAndTenantIdAndActiveTrue(String id, String tenantId);
+
+    Optional<Folder> findByIdAndActiveTrue(String id);
 
     boolean existsByIdAndTenantIdAndActiveTrue(String id, String tenantId);
 }

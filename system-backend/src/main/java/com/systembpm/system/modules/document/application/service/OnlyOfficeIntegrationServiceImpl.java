@@ -58,7 +58,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
     @Override
     public OnlyOfficeEditorConfigResponseDto getEditorConfig(String documentId, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata document = findDocument(documentId, requester.getTenantId());
+        DocumentMetadata document = findDocumentForRequester(documentId, requester);
         TaskDocumentConfig taskConfig = resolveTaskConfig(document);
         boolean editable = canEdit(document, taskConfig);
         Instant now = Instant.now();
@@ -112,7 +112,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
     @Override
     public OnlyOfficeEditingSessionResponseDto startEditing(String documentId, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata document = findDocument(documentId, requester.getTenantId());
+        DocumentMetadata document = findDocumentForRequester(documentId, requester);
         TaskDocumentConfig taskConfig = resolveTaskConfig(document);
         if (!canEdit(document, taskConfig)) {
             throw new InvalidDocumentAccessException("El documento no puede abrirse en modo edicion");
@@ -144,7 +144,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
     @Override
     public OnlyOfficeEditingSessionResponseDto finishEditing(String documentId, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata document = findDocument(documentId, requester.getTenantId());
+        DocumentMetadata document = findDocumentForRequester(documentId, requester);
         if (hasText(document.getCurrentEditor()) && !requester.getEmail().equalsIgnoreCase(document.getCurrentEditor()) && !isAdmin(requester)) {
             throw new InvalidDocumentAccessException("Solo el editor actual o un administrador puede finalizar la edicion");
         }
@@ -413,6 +413,17 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         }
         return documentMetadataRepository.findByIdAndTenantId(documentId.trim(), tenantId)
                 .orElseThrow(() -> new DocumentNotFoundException(documentId));
+    }
+
+    private DocumentMetadata findDocumentForRequester(String documentId, Usuario requester) {
+        if (isAdmin(requester)) {
+            if (!hasText(documentId)) {
+                throw new DocumentValidationException("documentId es obligatorio");
+            }
+            return documentMetadataRepository.findById(documentId.trim())
+                    .orElseThrow(() -> new DocumentNotFoundException(documentId));
+        }
+        return findDocument(documentId, requester.getTenantId());
     }
 
     private TaskDocumentConfig resolveTaskConfig(DocumentMetadata document) {

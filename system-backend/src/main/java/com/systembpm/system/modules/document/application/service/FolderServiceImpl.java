@@ -40,6 +40,7 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public FolderResponseDto create(FolderCreateRequestDto request, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
+        denyClientRepositoryAccess(requester);
         validateName(request != null ? request.getName() : null);
         String parentFolderId = normalize(request.getParentFolderId());
         ensureParentExists(parentFolderId, requester.getTenantId());
@@ -67,7 +68,14 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public List<FolderResponseDto> list(String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        List<FolderResponseDto> folders = folderRepository.findByTenantIdAndActiveTrueOrderByNameAsc(requester.getTenantId())
+        if (isClient(requester)) {
+            log.info("folder.list.client-hidden tenantId={} user={}", requester.getTenantId(), requester.getEmail());
+            return List.of();
+        }
+        List<Folder> source = isAdmin(requester)
+                ? folderRepository.findByActiveTrueOrderByNameAsc()
+                : folderRepository.findByTenantIdAndActiveTrueOrderByNameAsc(requester.getTenantId());
+        List<FolderResponseDto> folders = source
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -78,7 +86,8 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public FolderResponseDto getById(String id, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        Folder folder = findActiveFolder(id, requester.getTenantId());
+        denyClientRepositoryAccess(requester);
+        Folder folder = findActiveFolderForRequester(id, requester);
         log.info("folder.read tenantId={} folderId={} user={}", requester.getTenantId(), folder.getId(), requester.getEmail());
         return toResponse(folder);
     }
@@ -86,7 +95,8 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public FolderResponseDto update(String id, FolderUpdateRequestDto request, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        Folder folder = findActiveFolder(id, requester.getTenantId());
+        denyClientRepositoryAccess(requester);
+        Folder folder = findActiveFolderForRequester(id, requester);
         validateName(request != null ? request.getName() : null);
         String parentFolderId = normalize(request.getParentFolderId());
         validateParentChange(folder, parentFolderId, requester.getTenantId());
@@ -107,7 +117,8 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public void delete(String id, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        Folder folder = findActiveFolder(id, requester.getTenantId());
+        denyClientRepositoryAccess(requester);
+        Folder folder = findActiveFolderForRequester(id, requester);
         Instant now = Instant.now();
         folder.setActive(false);
         folder.setUpdatedAt(now);
@@ -119,7 +130,13 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public List<FolderTreeResponseDto> tree(String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        List<Folder> folders = folderRepository.findByTenantIdAndActiveTrueOrderByNameAsc(requester.getTenantId());
+        if (isClient(requester)) {
+            log.info("folder.tree.client-hidden tenantId={} user={}", requester.getTenantId(), requester.getEmail());
+            return List.of();
+        }
+        List<Folder> folders = isAdmin(requester)
+                ? folderRepository.findByActiveTrueOrderByNameAsc()
+                : folderRepository.findByTenantIdAndActiveTrueOrderByNameAsc(requester.getTenantId());
         Map<String, List<Folder>> byParent = new HashMap<>();
         for (Folder folder : folders) {
             byParent.computeIfAbsent(parentKey(folder.getParentFolderId()), ignored -> new ArrayList<>()).add(folder);
@@ -134,9 +151,12 @@ public class FolderServiceImpl implements FolderService {
     @Override
     public List<DocumentMetadataResponseDto> getDocuments(String id, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        Folder folder = findActiveFolder(id, requester.getTenantId());
-        List<DocumentMetadataResponseDto> documents = documentMetadataRepository
-                .findByTenantIdAndFolderIdOrderByUploadedAtDesc(requester.getTenantId(), folder.getId())
+        denyClientRepositoryAccess(requester);
+        Folder folder = findActiveFolderForRequester(id, requester);
+        List<DocumentMetadata> source = isAdmin(requester)
+                ? documentMetadataRepository.findByFolderIdOrderByUploadedAtDesc(folder.getId())
+                : documentMetadataRepository.findByTenantIdAndFolderIdOrderByUploadedAtDesc(requester.getTenantId(), folder.getId());
+        List<DocumentMetadataResponseDto> documents = source
                 .stream()
                 .map(this::toDocumentResponse)
                 .toList();
@@ -202,6 +222,17 @@ public class FolderServiceImpl implements FolderService {
         }
         return folderRepository.findByIdAndTenantIdAndActiveTrue(id.trim(), tenantId)
                 .orElseThrow(() -> new DocumentValidationException("La carpeta no existe o no pertenece a tu tenant"));
+    }
+
+    private Folder findActiveFolderForRequester(String id, Usuario requester) {
+        if (isAdmin(requester)) {
+            if (isBlank(id)) {
+                throw new DocumentValidationException("folderId es obligatorio");
+            }
+            return folderRepository.findByIdAndActiveTrue(id.trim())
+                    .orElseThrow(() -> new DocumentValidationException("La carpeta no existe"));
+        }
+        return findActiveFolder(id, requester.getTenantId());
     }
 
     private Usuario resolveRequester(String requesterEmail) {
@@ -306,5 +337,23 @@ public class FolderServiceImpl implements FolderService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private void denyClientRepositoryAccess(Usuario usuario) {
+        if (isClient(usuario)) {
+            log.warn("folder.client-forbidden tenantId={} user={} roles={}",
+                    usuario.getTenantId(), usuario.getEmail(), usuario.getRoles());
+            throw new DocumentTenantAccessDeniedException();
+        }
+    }
+
+    private boolean isClient(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .anyMatch(role -> "ROLE_CLIENT".equalsIgnoreCase(role) || "CLIENT".equalsIgnoreCase(role));
+    }
+
+    private boolean isAdmin(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .anyMatch(role -> "ROLE_ADMIN".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role));
     }
 }

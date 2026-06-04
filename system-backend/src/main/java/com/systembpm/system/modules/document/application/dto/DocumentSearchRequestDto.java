@@ -11,11 +11,13 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class DocumentSearchRequestDto {
+    private String tenantId;
     private String folderId;
     private String tagId;
     private DocumentLifecycleState documentState;
     private String mimeType;
     private String uploadedBy;
+    private String processInstanceId;
     private String processKey;
     private Integer processVersion;
     private String taskDefinitionKey;

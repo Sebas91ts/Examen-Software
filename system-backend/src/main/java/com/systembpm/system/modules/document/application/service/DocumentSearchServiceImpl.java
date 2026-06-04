@@ -54,7 +54,17 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
         String sortBy = resolveSortBy(filters.getSortBy());
         Sort.Direction direction = resolveDirection(filters.getSortDirection());
 
-        Criteria criteria = Criteria.where("tenantId").is(requester.getTenantId());
+        Criteria criteria = new Criteria();
+        if (isAdmin(requester)) {
+            if (!isBlank(filters.getTenantId())) {
+                criteria.and("tenantId").is(filters.getTenantId().trim());
+            }
+        } else {
+            criteria.and("tenantId").is(requester.getTenantId());
+        }
+        if (isClient(requester)) {
+            criteria.and("uploadedBy").is(requester.getEmail());
+        }
         applyFilters(criteria, filters);
 
         Query countQuery = new Query(criteria);
@@ -96,6 +106,9 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
         }
         if (!isBlank(filters.getUploadedBy())) {
             criteria.and("uploadedBy").is(filters.getUploadedBy().trim());
+        }
+        if (!isBlank(filters.getProcessInstanceId())) {
+            criteria.and("processInstanceId").is(filters.getProcessInstanceId().trim());
         }
         if (!isBlank(filters.getProcessKey())) {
             criteria.and("processKey").is(filters.getProcessKey().trim());
@@ -176,5 +189,15 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean isClient(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .anyMatch(role -> "ROLE_CLIENT".equalsIgnoreCase(role) || "CLIENT".equalsIgnoreCase(role));
+    }
+
+    private boolean isAdmin(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .anyMatch(role -> "ROLE_ADMIN".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role));
     }
 }

@@ -131,7 +131,8 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     public DocumentMetadataResponseDto getById(String documentId, String requester) {
         Usuario authenticatedUser = getRequester(requester);
-        DocumentMetadata metadata = findDocument(documentId, authenticatedUser.getTenantId());
+        DocumentMetadata metadata = findDocumentForRequester(documentId, authenticatedUser);
+        enforceRoleAccess(metadata, authenticatedUser);
         DocumentMetadata updated = updateLastAccessed(metadata, authenticatedUser.getEmail());
         log.info("document.metadata.read tenantId={} processInstanceId={} documentId={} user={} lastAccessedAt={}",
                 updated.getTenantId(), updated.getProcessInstanceId(), updated.getId(), authenticatedUser.getEmail(), updated.getLastAccessedAt());
@@ -141,7 +142,8 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     public DocumentDownloadUrlResponseDto getDownloadUrl(String documentId, String requester) {
         Usuario authenticatedUser = getRequester(requester);
-        DocumentMetadata metadata = findDocument(documentId, authenticatedUser.getTenantId());
+        DocumentMetadata metadata = findDocumentForRequester(documentId, authenticatedUser);
+        enforceRoleAccess(metadata, authenticatedUser);
         validateAccess(metadata);
 
         long expirationMinutes = documentProperties.signedUrl() != null
@@ -182,9 +184,12 @@ public class DocumentServiceImpl implements DocumentService {
 
         Usuario authenticatedUser = getRequester(requester);
         String tenantId = authenticatedUser.getTenantId();
-        List<DocumentMetadataResponseDto> results = documentMetadataRepository
-                .findByTenantIdAndProcessInstanceIdOrderByUploadedAtDesc(tenantId, processInstanceId)
+        List<DocumentMetadata> documents = isAdmin(authenticatedUser)
+                ? documentMetadataRepository.findByProcessInstanceIdOrderByUploadedAtDesc(processInstanceId)
+                : documentMetadataRepository.findByTenantIdAndProcessInstanceIdOrderByUploadedAtDesc(tenantId, processInstanceId);
+        List<DocumentMetadataResponseDto> results = documents
                 .stream()
+                .filter(metadata -> canAccess(metadata, authenticatedUser))
                 .map(this::toMetadataResponse)
                 .toList();
 
@@ -223,6 +228,17 @@ public class DocumentServiceImpl implements DocumentService {
         return metadata;
     }
 
+    private DocumentMetadata findDocumentForRequester(String documentId, Usuario requester) {
+        if (isAdmin(requester)) {
+            if (isBlank(documentId)) {
+                throw new DocumentValidationException("documentId es obligatorio");
+            }
+            return documentMetadataRepository.findById(documentId)
+                    .orElseThrow(() -> new DocumentNotFoundException(documentId));
+        }
+        return findDocument(documentId, requester.getTenantId());
+    }
+
     private DocumentMetadata updateLastAccessed(DocumentMetadata metadata, String updatedBy) {
         Instant now = Instant.now();
         metadata.setLastAccessedAt(now);
@@ -235,6 +251,31 @@ public class DocumentServiceImpl implements DocumentService {
         if (metadata.getStatus() == DocumentStatus.DELETED) {
             throw new InvalidDocumentAccessException("El documento no esta disponible para descarga");
         }
+    }
+
+    private void enforceRoleAccess(DocumentMetadata metadata, Usuario requester) {
+        if (!canAccess(metadata, requester)) {
+            log.warn("document.role.forbidden tenantId={} documentId={} user={} roles={}",
+                    requester.getTenantId(), metadata.getId(), requester.getEmail(), requester.getRoles());
+            throw new DocumentTenantAccessDeniedException();
+        }
+    }
+
+    private boolean canAccess(DocumentMetadata metadata, Usuario requester) {
+        if (isClient(requester)) {
+            return requester.getEmail() != null && requester.getEmail().equalsIgnoreCase(metadata.getUploadedBy());
+        }
+        return true;
+    }
+
+    private boolean isClient(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .anyMatch(role -> "ROLE_CLIENT".equalsIgnoreCase(role) || "CLIENT".equalsIgnoreCase(role));
+    }
+
+    private boolean isAdmin(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .anyMatch(role -> "ROLE_ADMIN".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role));
     }
 
     private void validateRequest(DocumentUploadRequestDto request, MultipartFile file) {

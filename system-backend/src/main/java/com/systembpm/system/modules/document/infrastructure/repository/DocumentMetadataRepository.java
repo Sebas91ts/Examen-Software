@@ -21,6 +21,8 @@ public interface DocumentMetadataRepository extends MongoRepository<DocumentMeta
 
     List<DocumentMetadata> findByTenantIdAndProcessInstanceIdOrderByUploadedAtDesc(String tenantId, String processInstanceId);
 
+    List<DocumentMetadata> findByProcessInstanceIdOrderByUploadedAtDesc(String processInstanceId);
+
     List<DocumentMetadata> findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyOrderByUploadedAtDesc(
             String tenantId,
             String processInstanceId,
@@ -46,6 +48,8 @@ public interface DocumentMetadataRepository extends MongoRepository<DocumentMeta
     );
 
     List<DocumentMetadata> findByTenantIdAndFolderIdOrderByUploadedAtDesc(String tenantId, String folderId);
+
+    List<DocumentMetadata> findByFolderIdOrderByUploadedAtDesc(String folderId);
 
     Optional<DocumentMetadata> findByOnlyOfficeDocumentKey(String onlyOfficeDocumentKey);
 }
