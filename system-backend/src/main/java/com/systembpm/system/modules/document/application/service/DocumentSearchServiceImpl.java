@@ -54,16 +54,24 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
         String sortBy = resolveSortBy(filters.getSortBy());
         Sort.Direction direction = resolveDirection(filters.getSortDirection());
 
+        String requesterAreaId = effectiveAreaId(requester);
         Criteria criteria = new Criteria();
         if (isAdmin(requester)) {
             if (!isBlank(filters.getTenantId())) {
                 criteria.and("tenantId").is(filters.getTenantId().trim());
             }
-        } else {
-            criteria.and("tenantId").is(requester.getTenantId());
-        }
-        if (isClient(requester)) {
+        } else if (isClient(requester)) {
             criteria.and("uploadedBy").is(requester.getEmail());
+        } else {
+            criteria = new Criteria().orOperator(
+                    Criteria.where("tenantId").is(requesterAreaId),
+                    Criteria.where("ownerAreaId").is(requesterAreaId),
+                    Criteria.where("allowedAreaIds").is(requesterAreaId),
+                    Criteria.where("accessRules").elemMatch(new Criteria().andOperator(
+                            Criteria.where("areaId").is(requesterAreaId),
+                            Criteria.where("canView").is(true)
+                    ))
+            );
         }
         applyFilters(criteria, filters);
 
@@ -77,8 +85,8 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
         List<DocumentMetadata> documents = mongoTemplate.find(query, DocumentMetadata.class);
 
         int totalPages = total == 0 ? 0 : (int) Math.ceil((double) total / size);
-        log.info("document.search tenantId={} user={} page={} size={} total={} sortBy={} sortDirection={}",
-                requester.getTenantId(), requester.getEmail(), page, size, total, sortBy, direction.name());
+        log.info("document.search areaId={} tenantId={} user={} roles={} page={} size={} total={} sortBy={} sortDirection={}",
+                requesterAreaId, requester.getTenantId(), requester.getEmail(), requester.getRoles(), page, size, total, sortBy, direction.name());
 
         return DocumentSearchResponseDto.builder()
                 .content(documents.stream().map(documentResponseMapper::toMetadataResponse).toList())
@@ -181,7 +189,7 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
         }
         Usuario usuario = usuarioRepository.findByEmail(normalized)
                 .orElseThrow(DocumentRequesterNotFoundException::new);
-        if (isBlank(usuario.getTenantId())) {
+        if (isBlank(effectiveAreaId(usuario)) && !isAdmin(usuario) && !isClient(usuario)) {
             throw new DocumentTenantAccessDeniedException();
         }
         return usuario;
@@ -199,5 +207,12 @@ public class DocumentSearchServiceImpl implements DocumentSearchService {
     private boolean isAdmin(Usuario usuario) {
         return usuario.getRoles() != null && usuario.getRoles().stream()
                 .anyMatch(role -> "ROLE_ADMIN".equalsIgnoreCase(role) || "ADMIN".equalsIgnoreCase(role));
+    }
+
+    private String effectiveAreaId(Usuario usuario) {
+        if (!isBlank(usuario.getAreaId())) {
+            return usuario.getAreaId().trim();
+        }
+        return isBlank(usuario.getTenantId()) ? null : usuario.getTenantId().trim();
     }
 }

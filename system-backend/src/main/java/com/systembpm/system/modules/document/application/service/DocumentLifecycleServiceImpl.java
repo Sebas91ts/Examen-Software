@@ -2,6 +2,7 @@ package com.systembpm.system.modules.document.application.service;
 
 import com.systembpm.system.modules.document.application.dto.DocumentMetadataResponseDto;
 import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
+import com.systembpm.system.modules.document.domain.DocumentAreaAccessRule;
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
 import com.systembpm.system.modules.document.domain.DocumentNotFoundException;
 import com.systembpm.system.modules.document.domain.DocumentRequesterNotFoundException;
@@ -39,8 +40,8 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
     @Override
     public DocumentMetadataResponseDto approve(String documentId, String comment, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata metadata = findDocument(documentId, requester.getTenantId());
-        ensureApproveAllowed(metadata, requester);
+        DocumentMetadata metadata = findDocumentForRequester(documentId, requester);
+        enforceAreaPermission(metadata, requester, DocumentPermission.APPROVE);
 
         Instant now = Instant.now();
         metadata.setDocumentState(DocumentLifecycleState.APPROVED);
@@ -61,8 +62,8 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
     @Override
     public DocumentMetadataResponseDto reject(String documentId, String comment, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata metadata = findDocument(documentId, requester.getTenantId());
-        ensureApproveAllowed(metadata, requester);
+        DocumentMetadata metadata = findDocumentForRequester(documentId, requester);
+        enforceAreaPermission(metadata, requester, DocumentPermission.REJECT);
 
         Instant now = Instant.now();
         metadata.setDocumentState(DocumentLifecycleState.REJECTED);
@@ -83,7 +84,8 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
     @Override
     public DocumentMetadataResponseDto lock(String documentId, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata metadata = findDocument(documentId, requester.getTenantId());
+        DocumentMetadata metadata = findDocumentForRequester(documentId, requester);
+        enforceAreaPermission(metadata, requester, DocumentPermission.LOCK);
         ensureEditable(metadata, requester.getEmail());
 
         if (Boolean.TRUE.equals(metadata.getLocked()) && !requester.getEmail().equalsIgnoreCase(nullSafe(metadata.getLockedBy()))) {
@@ -106,7 +108,8 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
     @Override
     public DocumentMetadataResponseDto unlock(String documentId, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
-        DocumentMetadata metadata = findDocument(documentId, requester.getTenantId());
+        DocumentMetadata metadata = findDocumentForRequester(documentId, requester);
+        enforceAreaPermission(metadata, requester, DocumentPermission.LOCK);
 
         if (Boolean.TRUE.equals(metadata.getLocked()) && !requester.getEmail().equalsIgnoreCase(nullSafe(metadata.getLockedBy())) && !isAdmin(requester)) {
             throw new InvalidDocumentAccessException("Solo quien bloqueo el documento o un administrador puede desbloquearlo");
@@ -133,10 +136,13 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
 
         Usuario requester = resolveRequester(requesterEmail);
         List<DocumentMetadata> documents = isBlank(taskInstanceId)
-                ? documentMetadataRepository.findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyOrderByUploadedAtDesc(
-                        requester.getTenantId(), processInstanceId.trim(), taskDefinitionKey.trim())
-                : documentMetadataRepository.findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyAndTaskInstanceIdOrderByUploadedAtDesc(
-                        requester.getTenantId(), processInstanceId.trim(), taskDefinitionKey.trim(), taskInstanceId.trim());
+                ? documentMetadataRepository.findByProcessInstanceIdAndTaskDefinitionKeyOrderByUploadedAtDesc(
+                        processInstanceId.trim(), taskDefinitionKey.trim())
+                : documentMetadataRepository.findByProcessInstanceIdAndTaskDefinitionKeyAndTaskInstanceIdOrderByUploadedAtDesc(
+                        processInstanceId.trim(), taskDefinitionKey.trim(), taskInstanceId.trim());
+        documents = documents.stream()
+                .filter(document -> hasAreaPermission(document, requester, DocumentPermission.VIEW))
+                .toList();
 
         log.info("document.lifecycle.task-list tenantId={} processInstanceId={} taskDefinitionKey={} taskInstanceId={} user={} count={}",
                 requester.getTenantId(), processInstanceId, taskDefinitionKey, taskInstanceId, requester.getEmail(), documents.size());
@@ -147,9 +153,12 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
     public List<DocumentMetadataResponseDto> getPending(String processInstanceId, String requesterEmail) {
         Usuario requester = resolveRequester(requesterEmail);
         List<DocumentMetadata> documents = isBlank(processInstanceId)
-                ? documentMetadataRepository.findByTenantIdAndDocumentStateInOrderByUpdatedAtDesc(requester.getTenantId(), REVIEW_PENDING_STATES)
-                : documentMetadataRepository.findByTenantIdAndProcessInstanceIdAndDocumentStateInOrderByUpdatedAtDesc(
-                        requester.getTenantId(), processInstanceId.trim(), REVIEW_PENDING_STATES);
+                ? documentMetadataRepository.findByDocumentStateInOrderByUpdatedAtDesc(REVIEW_PENDING_STATES)
+                : documentMetadataRepository.findByProcessInstanceIdAndDocumentStateInOrderByUpdatedAtDesc(
+                        processInstanceId.trim(), REVIEW_PENDING_STATES);
+        documents = documents.stream()
+                .filter(document -> hasAreaPermission(document, requester, DocumentPermission.VIEW))
+                .toList();
 
         log.info("document.lifecycle.pending-list tenantId={} processInstanceId={} user={} count={}",
                 requester.getTenantId(), processInstanceId, requester.getEmail(), documents.size());
@@ -183,12 +192,12 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
 
         TaskDocumentConfig config = taskDocumentConfigRepository
                 .findByTenantIdAndProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
-                        requester.getTenantId(), processKey, processVersion, taskDefinitionKey)
+                        effectiveAreaId(requester), processKey, processVersion, taskDefinitionKey)
                 .orElse(null);
 
         List<DocumentMetadata> documents = documentMetadataRepository
                 .findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyOrderByUploadedAtDesc(
-                        requester.getTenantId(), processInstanceId, taskDefinitionKey);
+                        effectiveAreaId(requester), processInstanceId, taskDefinitionKey);
         if (documents.isEmpty()) {
             if (config != null && Boolean.TRUE.equals(config.getRequired())) {
                 log.warn("document.lifecycle.required-missing tenantId={} processInstanceId={} processKey={} version={} taskDefinitionKey={} taskInstanceId={} user={}",
@@ -222,16 +231,6 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
                 requester.getTenantId(), processInstanceId, processKey, processVersion, taskDefinitionKey, taskInstanceId, requester.getEmail(), documents.size(), readOnlyAfterComplete);
     }
 
-    private void ensureApproveAllowed(DocumentMetadata metadata, Usuario requester) {
-        TaskDocumentConfig config = resolveConfig(metadata, requester.getTenantId());
-        if (config != null && config.getPermissions() != null && !Boolean.TRUE.equals(config.getPermissions().getCanApprove())) {
-            throw new InvalidDocumentAccessException("No tienes permiso para aprobar o rechazar este documento");
-        }
-        if (Boolean.TRUE.equals(metadata.getLocked()) && !requester.getEmail().equalsIgnoreCase(nullSafe(metadata.getLockedBy())) && !isWorkflowLock(metadata)) {
-            throw new InvalidDocumentAccessException("El documento esta bloqueado por otro usuario");
-        }
-    }
-
     private void ensureEditable(DocumentMetadata metadata, String requesterEmail) {
         if (metadata.getDocumentState() == DocumentLifecycleState.FINAL || metadata.getDocumentState() == DocumentLifecycleState.ARCHIVED) {
             throw new InvalidDocumentAccessException("El documento ya esta en estado final y no puede editarse");
@@ -242,19 +241,6 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         if (Boolean.TRUE.equals(metadata.getLocked()) && !requesterEmail.equalsIgnoreCase(nullSafe(metadata.getLockedBy()))) {
             throw new InvalidDocumentAccessException("El documento esta bloqueado por otro usuario");
         }
-    }
-
-    private TaskDocumentConfig resolveConfig(DocumentMetadata metadata, String tenantId) {
-        if (isBlank(metadata.getProcessKey()) || metadata.getProcessVersion() == null || isBlank(metadata.getTaskDefinitionKey())) {
-            return null;
-        }
-        return taskDocumentConfigRepository
-                .findByTenantIdAndProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
-                        tenantId,
-                        metadata.getProcessKey(),
-                        metadata.getProcessVersion(),
-                        metadata.getTaskDefinitionKey())
-                .orElse(null);
     }
 
     private DocumentMetadata findDocument(String documentId, String tenantId) {
@@ -272,6 +258,72 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         return metadata;
     }
 
+    private DocumentMetadata findDocumentForRequester(String documentId, Usuario requester) {
+        if (isAdmin(requester)) {
+            if (isBlank(documentId)) {
+                throw new DocumentValidationException("documentId es obligatorio");
+            }
+            return documentMetadataRepository.findById(documentId)
+                    .orElseThrow(() -> new DocumentNotFoundException(documentId));
+        }
+        DocumentMetadata metadata = documentMetadataRepository.findById(documentId)
+                .orElseThrow(() -> new DocumentNotFoundException(documentId));
+        if (!hasAreaPermission(metadata, requester, DocumentPermission.VIEW)) {
+            log.warn("document.lifecycle.area-forbidden requesterArea={} ownerAreaId={} allowedAreaIds={} documentId={}",
+                    requester.getTenantId(), ownerArea(metadata), metadata.getAllowedAreaIds(), documentId);
+            throw new DocumentTenantAccessDeniedException();
+        }
+        return metadata;
+    }
+
+    private void enforceAreaPermission(DocumentMetadata metadata, Usuario requester, DocumentPermission permission) {
+        if (!hasAreaPermission(metadata, requester, permission)) {
+            throw new InvalidDocumentAccessException("No tienes permiso documental para esta accion");
+        }
+    }
+
+    private boolean hasAreaPermission(DocumentMetadata metadata, Usuario requester, DocumentPermission permission) {
+        if (isAdmin(requester)) {
+            return true;
+        }
+        if (isClient(requester)) {
+            return requester.getEmail() != null && requester.getEmail().equalsIgnoreCase(metadata.getUploadedBy())
+                    && (permission == DocumentPermission.VIEW || permission == DocumentPermission.DOWNLOAD);
+        }
+        String areaId = effectiveAreaId(requester);
+        if (areaId.equals(ownerArea(metadata)) || areaId.equals(metadata.getTenantId())) {
+            return true;
+        }
+        DocumentAreaAccessRule rule = findRule(metadata, areaId);
+        if (rule != null) {
+            return switch (permission) {
+                case VIEW -> Boolean.TRUE.equals(rule.getCanView());
+                case DOWNLOAD -> Boolean.TRUE.equals(rule.getCanDownload()) || Boolean.TRUE.equals(rule.getCanView());
+                case EDIT -> Boolean.TRUE.equals(rule.getCanEdit());
+                case APPROVE -> Boolean.TRUE.equals(rule.getCanApprove());
+                case REJECT -> Boolean.TRUE.equals(rule.getCanReject());
+                case LOCK -> Boolean.TRUE.equals(rule.getCanLock());
+            };
+        }
+        return (permission == DocumentPermission.VIEW || permission == DocumentPermission.DOWNLOAD)
+                && metadata.getAllowedAreaIds() != null
+                && metadata.getAllowedAreaIds().contains(areaId);
+    }
+
+    private String ownerArea(DocumentMetadata metadata) {
+        return !isBlank(metadata.getOwnerAreaId()) ? metadata.getOwnerAreaId() : metadata.getTenantId();
+    }
+
+    private DocumentAreaAccessRule findRule(DocumentMetadata metadata, String areaId) {
+        if (metadata.getAccessRules() == null || areaId == null) {
+            return null;
+        }
+        return metadata.getAccessRules().stream()
+                .filter(rule -> rule != null && areaId.equals(rule.getAreaId()))
+                .findFirst()
+                .orElse(null);
+    }
+
     private Usuario resolveRequester(String requesterEmail) {
         String normalized = requesterEmail == null ? null : requesterEmail.trim();
         if (isBlank(normalized)) {
@@ -279,7 +331,7 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         }
         Usuario usuario = usuarioRepository.findByEmail(normalized)
                 .orElseThrow(DocumentRequesterNotFoundException::new);
-        if (isBlank(usuario.getTenantId())) {
+        if (isBlank(effectiveAreaId(usuario)) && !isAdmin(usuario)) {
             throw new DocumentTenantAccessDeniedException();
         }
         return usuario;
@@ -298,6 +350,9 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         return DocumentMetadataResponseDto.builder()
                 .id(metadata.getId())
                 .tenantId(metadata.getTenantId())
+                .ownerAreaId(metadata.getOwnerAreaId())
+                .allowedAreaIds(metadata.getAllowedAreaIds())
+                .accessRules(DocumentResponseMapper.toAccessRuleDtos(metadata.getAccessRules()))
                 .processInstanceId(metadata.getProcessInstanceId())
                 .fileName(metadata.getFileName())
                 .originalName(metadata.getOriginalName())
@@ -316,6 +371,8 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
                 .processVersion(metadata.getProcessVersion())
                 .taskDefinitionKey(metadata.getTaskDefinitionKey())
                 .taskInstanceId(metadata.getTaskInstanceId())
+                .documentRequirementId(metadata.getDocumentRequirementId())
+                .documentRequirementName(metadata.getDocumentRequirementName())
                 .documentState(metadata.getDocumentState())
                 .locked(metadata.getLocked())
                 .lockedBy(metadata.getLockedBy())
@@ -340,6 +397,19 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         return usuario.getRoles() != null && usuario.getRoles().stream()
                 .filter(role -> role != null && !role.isBlank())
                 .anyMatch(role -> "ADMIN".equalsIgnoreCase(role) || "ROLE_ADMIN".equalsIgnoreCase(role));
+    }
+
+    private boolean isClient(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .filter(role -> role != null && !role.isBlank())
+                .anyMatch(role -> "CLIENT".equalsIgnoreCase(role) || "ROLE_CLIENT".equalsIgnoreCase(role));
+    }
+
+    private String effectiveAreaId(Usuario usuario) {
+        if (!isBlank(usuario.getAreaId())) {
+            return usuario.getAreaId().trim();
+        }
+        return isBlank(usuario.getTenantId()) ? null : usuario.getTenantId().trim();
     }
 
     private boolean isWorkflowLock(DocumentMetadata metadata) {
@@ -379,5 +449,14 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private enum DocumentPermission {
+        VIEW,
+        DOWNLOAD,
+        EDIT,
+        APPROVE,
+        REJECT,
+        LOCK
     }
 }

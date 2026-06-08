@@ -4,6 +4,7 @@ import com.systembpm.system.modules.process.domain.Proceso;
 import com.systembpm.system.modules.process.infrastructure.repository.ProcesoRepository;
 import com.systembpm.system.modules.bpmn.application.service.BpmnXmlSanitizerService;
 import com.systembpm.system.modules.document.application.service.DocumentLifecycleService;
+import com.systembpm.system.modules.document.application.service.DocumentTaskRuntimeService;
 import com.systembpm.system.modules.area.domain.Area;
 import com.systembpm.system.modules.area.infrastructure.repository.AreaRepository;
 import com.systembpm.system.modules.security.application.service.AuthService;
@@ -43,6 +44,7 @@ import java.io.StringReader;
 @RequiredArgsConstructor
 public class CamundaServiceImpl implements CamundaService {
     private static final String ESTADO_PUBLICADO = "PUBLICADO";
+    private static final String CAMUNDA_NS = "http://camunda.org/schema/1.0/bpmn";
 
     private final RestTemplate restTemplate;
     private final ProcesoRepository procesoRepository;
@@ -50,9 +52,13 @@ public class CamundaServiceImpl implements CamundaService {
     private final AuthService authService;
     private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
     private final DocumentLifecycleService documentLifecycleService;
+    private final DocumentTaskRuntimeService documentTaskRuntimeService;
 
     @Value("${CAMUNDA_BASE_URL:${camunda.base-url:http://localhost:8081/engine-rest}}")
     private String camundaBaseUrl;
+
+    @Value("${camunda.history-time-to-live-days:180}")
+    private Integer historyTimeToLiveDays;
 
     @Override
     public Map<String, Object> desplegarProceso(String procesoId) {
@@ -291,6 +297,9 @@ public class CamundaServiceImpl implements CamundaService {
 
         try {
             Map<String, Object> taskSnapshot = obtenerTarea(taskId);
+            if (completedBy != null && !completedBy.isBlank()) {
+                documentTaskRuntimeService.validateBeforeComplete(taskSnapshot, completedBy);
+            }
             Map<String, Object> payload = new java.util.LinkedHashMap<>();
             Map<String, Object> normalizedVariables = normalizeVariables(variables);
             log.info("Enviando variables a Camunda para tarea {}: {}", taskId, normalizedVariables);
@@ -602,12 +611,14 @@ public class CamundaServiceImpl implements CamundaService {
 
         try {
             Document document = parseDocument(xmlSanitizado);
+            ensureCamundaNamespace(document);
             NodeList processNodes = document.getElementsByTagNameNS("http://www.omg.org/spec/BPMN/20100524/MODEL", "process");
             for (int i = 0; i < processNodes.getLength(); i++) {
                 Node node = processNodes.item(i);
                 if (node instanceof Element processElement) {
                     processElement.setAttribute("id", normalizedProcessKey.trim());
                     processElement.setAttribute("isExecutable", "true");
+                    ensureHistoryTimeToLive(processElement);
                     if (proceso.getNombre() != null && !proceso.getNombre().isBlank()) {
                         processElement.setAttribute("name", proceso.getNombre().trim());
                     }
@@ -630,6 +641,30 @@ public class CamundaServiceImpl implements CamundaService {
             log.warn("No se pudo alinear el processKey BPMN del proceso {} antes del despliegue. Se usara el XML sanitizado actual.", proceso.getId(), ex);
             return xmlSanitizado;
         }
+    }
+
+    private void ensureCamundaNamespace(Document document) {
+        if (document == null || document.getDocumentElement() == null) {
+            return;
+        }
+        Element definitions = document.getDocumentElement();
+        if (!definitions.hasAttribute("xmlns:camunda")) {
+            definitions.setAttributeNS(XMLConstants.XMLNS_ATTRIBUTE_NS_URI, "xmlns:camunda", CAMUNDA_NS);
+        }
+    }
+
+    private void ensureHistoryTimeToLive(Element processElement) {
+        if (processElement == null) {
+            return;
+        }
+        String existing = processElement.getAttributeNS(CAMUNDA_NS, "historyTimeToLive");
+        if (existing != null && !existing.isBlank()) {
+            return;
+        }
+        int ttlDays = historyTimeToLiveDays != null && historyTimeToLiveDays > 0
+                ? historyTimeToLiveDays
+                : 180;
+        processElement.setAttributeNS(CAMUNDA_NS, "camunda:historyTimeToLive", String.valueOf(ttlDays));
     }
 
     private String serializeDocument(Document document) throws Exception {

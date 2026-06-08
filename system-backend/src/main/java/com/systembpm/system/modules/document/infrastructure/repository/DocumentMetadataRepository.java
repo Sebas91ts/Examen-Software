@@ -29,8 +29,19 @@ public interface DocumentMetadataRepository extends MongoRepository<DocumentMeta
             String taskDefinitionKey
     );
 
+    List<DocumentMetadata> findByProcessInstanceIdAndTaskDefinitionKeyOrderByUploadedAtDesc(
+            String processInstanceId,
+            String taskDefinitionKey
+    );
+
     List<DocumentMetadata> findByTenantIdAndProcessInstanceIdAndTaskDefinitionKeyAndTaskInstanceIdOrderByUploadedAtDesc(
             String tenantId,
+            String processInstanceId,
+            String taskDefinitionKey,
+            String taskInstanceId
+    );
+
+    List<DocumentMetadata> findByProcessInstanceIdAndTaskDefinitionKeyAndTaskInstanceIdOrderByUploadedAtDesc(
             String processInstanceId,
             String taskDefinitionKey,
             String taskInstanceId
@@ -46,6 +57,13 @@ public interface DocumentMetadataRepository extends MongoRepository<DocumentMeta
             String tenantId,
             List<DocumentLifecycleState> states
     );
+
+    List<DocumentMetadata> findByProcessInstanceIdAndDocumentStateInOrderByUpdatedAtDesc(
+            String processInstanceId,
+            List<DocumentLifecycleState> states
+    );
+
+    List<DocumentMetadata> findByDocumentStateInOrderByUpdatedAtDesc(List<DocumentLifecycleState> states);
 
     List<DocumentMetadata> findByTenantIdAndFolderIdOrderByUploadedAtDesc(String tenantId, String folderId);
 

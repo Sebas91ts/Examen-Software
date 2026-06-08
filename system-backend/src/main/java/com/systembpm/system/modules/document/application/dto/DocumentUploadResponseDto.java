@@ -17,6 +17,9 @@ import java.util.List;
 public class DocumentUploadResponseDto {
     private String id;
     private String tenantId;
+    private String ownerAreaId;
+    private java.util.List<String> allowedAreaIds;
+    private java.util.List<DocumentAreaAccessRuleDto> accessRules;
     private String processInstanceId;
     private String fileName;
     private String originalName;
@@ -35,6 +38,10 @@ public class DocumentUploadResponseDto {
     private Integer processVersion;
     private String taskDefinitionKey;
     private String taskInstanceId;
+    private String documentRequirementId;
+    private String documentRequirementName;
+    private String documentDirection;
+    private String documentLifecyclePolicy;
     private DocumentLifecycleState documentState;
     private Boolean locked;
     private String lockedBy;

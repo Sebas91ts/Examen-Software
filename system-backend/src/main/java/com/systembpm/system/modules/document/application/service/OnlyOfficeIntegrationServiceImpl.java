@@ -5,6 +5,7 @@ import com.systembpm.system.modules.document.application.dto.OnlyOfficeCallbackR
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeEditingSessionResponseDto;
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeEditorConfigResponseDto;
 import com.systembpm.system.modules.document.application.port.out.DocumentStoragePort;
+import com.systembpm.system.modules.document.domain.DocumentAreaAccessRule;
 import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
 import com.systembpm.system.modules.document.domain.DocumentNotFoundException;
@@ -60,7 +61,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         Usuario requester = resolveRequester(requesterEmail);
         DocumentMetadata document = findDocumentForRequester(documentId, requester);
         TaskDocumentConfig taskConfig = resolveTaskConfig(document);
-        boolean editable = canEdit(document, taskConfig);
+        boolean editable = canEdit(document, taskConfig, requester);
         Instant now = Instant.now();
         document.setUpdatedAt(now);
         document.setUpdatedBy(requester.getEmail());
@@ -114,7 +115,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         Usuario requester = resolveRequester(requesterEmail);
         DocumentMetadata document = findDocumentForRequester(documentId, requester);
         TaskDocumentConfig taskConfig = resolveTaskConfig(document);
-        if (!canEdit(document, taskConfig)) {
+        if (!canEdit(document, taskConfig, requester)) {
             throw new InvalidDocumentAccessException("El documento no puede abrirse en modo edicion");
         }
         boolean collaborative = resolveCollaborative(document, taskConfig);
@@ -321,7 +322,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         documentMetadataRepository.save(document);
     }
 
-    private boolean canEdit(DocumentMetadata document, TaskDocumentConfig config) {
+    private boolean canEdit(DocumentMetadata document, TaskDocumentConfig config, Usuario requester) {
         if (document.getDocumentState() == DocumentLifecycleState.FINAL || document.getDocumentState() == DocumentLifecycleState.ARCHIVED) {
             return false;
         }
@@ -329,6 +330,9 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
             return false;
         }
         if (config != null && Boolean.TRUE.equals(config.getReadOnlyAfterComplete()) && Boolean.TRUE.equals(document.getLocked())) {
+            return false;
+        }
+        if (!hasAreaPermission(document, requester, DocumentPermission.EDIT)) {
             return false;
         }
         if (config != null) {
@@ -407,23 +411,18 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         return Keys.hmacShaKeyFor(onlyOfficeProperties.jwtSecret().getBytes(StandardCharsets.UTF_8));
     }
 
-    private DocumentMetadata findDocument(String documentId, String tenantId) {
+    private DocumentMetadata findDocumentForRequester(String documentId, Usuario requester) {
         if (!hasText(documentId)) {
             throw new DocumentValidationException("documentId es obligatorio");
         }
-        return documentMetadataRepository.findByIdAndTenantId(documentId.trim(), tenantId)
+        DocumentMetadata document = documentMetadataRepository.findById(documentId.trim())
                 .orElseThrow(() -> new DocumentNotFoundException(documentId));
-    }
-
-    private DocumentMetadata findDocumentForRequester(String documentId, Usuario requester) {
-        if (isAdmin(requester)) {
-            if (!hasText(documentId)) {
-                throw new DocumentValidationException("documentId es obligatorio");
-            }
-            return documentMetadataRepository.findById(documentId.trim())
-                    .orElseThrow(() -> new DocumentNotFoundException(documentId));
+        if (!hasAreaPermission(document, requester, DocumentPermission.VIEW)) {
+            log.warn("onlyoffice.area-access.forbidden userAreaId={} ownerAreaId={} allowedAreaIds={} documentId={} user={}",
+                    requester.getTenantId(), ownerArea(document), document.getAllowedAreaIds(), documentId, requester.getEmail());
+            throw new DocumentTenantAccessDeniedException();
         }
-        return findDocument(documentId, requester.getTenantId());
+        return document;
     }
 
     private TaskDocumentConfig resolveTaskConfig(DocumentMetadata document) {
@@ -446,7 +445,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         }
         Usuario usuario = usuarioRepository.findByEmail(normalized)
                 .orElseThrow(DocumentRequesterNotFoundException::new);
-        if (!hasText(usuario.getTenantId())) {
+        if (!hasText(effectiveAreaId(usuario)) && !isAdmin(usuario)) {
             throw new DocumentTenantAccessDeniedException();
         }
         return usuario;
@@ -485,6 +484,61 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         return usuario.getRoles() != null && usuario.getRoles().stream()
                 .filter(role -> role != null && !role.isBlank())
                 .anyMatch(role -> "ADMIN".equalsIgnoreCase(role) || "ROLE_ADMIN".equalsIgnoreCase(role));
+    }
+
+    private boolean hasAreaPermission(DocumentMetadata metadata, Usuario requester, DocumentPermission permission) {
+        if (isAdmin(requester)) {
+            return true;
+        }
+        if (isClient(requester)) {
+            return requester.getEmail() != null && requester.getEmail().equalsIgnoreCase(metadata.getUploadedBy())
+                    && (permission == DocumentPermission.VIEW || permission == DocumentPermission.DOWNLOAD);
+        }
+        String areaId = effectiveAreaId(requester);
+        if (!hasText(areaId)) {
+            return false;
+        }
+        if (areaId.equals(ownerArea(metadata)) || areaId.equals(metadata.getTenantId())) {
+            return true;
+        }
+        DocumentAreaAccessRule rule = findRule(metadata, areaId);
+        if (rule != null) {
+            return switch (permission) {
+                case VIEW -> Boolean.TRUE.equals(rule.getCanView());
+                case DOWNLOAD -> Boolean.TRUE.equals(rule.getCanDownload()) || Boolean.TRUE.equals(rule.getCanView());
+                case EDIT -> Boolean.TRUE.equals(rule.getCanEdit());
+            };
+        }
+        return (permission == DocumentPermission.VIEW || permission == DocumentPermission.DOWNLOAD)
+                && metadata.getAllowedAreaIds() != null
+                && metadata.getAllowedAreaIds().contains(areaId);
+    }
+
+    private boolean isClient(Usuario usuario) {
+        return usuario.getRoles() != null && usuario.getRoles().stream()
+                .filter(role -> role != null && !role.isBlank())
+                .anyMatch(role -> "CLIENT".equalsIgnoreCase(role) || "ROLE_CLIENT".equalsIgnoreCase(role));
+    }
+
+    private String effectiveAreaId(Usuario usuario) {
+        if (hasText(usuario.getAreaId())) {
+            return usuario.getAreaId().trim();
+        }
+        return hasText(usuario.getTenantId()) ? usuario.getTenantId().trim() : null;
+    }
+
+    private String ownerArea(DocumentMetadata metadata) {
+        return hasText(metadata.getOwnerAreaId()) ? metadata.getOwnerAreaId() : metadata.getTenantId();
+    }
+
+    private DocumentAreaAccessRule findRule(DocumentMetadata metadata, String areaId) {
+        if (metadata.getAccessRules() == null || areaId == null) {
+            return null;
+        }
+        return metadata.getAccessRules().stream()
+                .filter(rule -> rule != null && areaId.equals(rule.getAreaId()))
+                .findFirst()
+                .orElse(null);
     }
 
     private String resolveDocumentType(String mimeType, String originalName) {
@@ -534,5 +588,11 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private enum DocumentPermission {
+        VIEW,
+        DOWNLOAD,
+        EDIT
     }
 }

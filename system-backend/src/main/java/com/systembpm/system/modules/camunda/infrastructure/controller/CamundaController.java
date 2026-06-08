@@ -1,6 +1,8 @@
 package com.systembpm.system.modules.camunda.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
+import com.systembpm.system.modules.document.application.dto.TaskDocumentRuntimeResponseDto;
+import com.systembpm.system.modules.document.application.service.DocumentTaskRuntimeService;
 import com.systembpm.system.modules.camunda.application.service.CamundaServiceImpl;
 import com.systembpm.system.modules.notification.application.service.NotificationServiceImpl;
 import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
@@ -32,6 +34,7 @@ public class CamundaController {
     private final ITaskExecutionLogService taskExecutionLogService;
     private final NotificationServiceImpl notificationService;
     private final IRealtimeEventService realtimeEventService;
+    private final DocumentTaskRuntimeService documentTaskRuntimeService;
 
     @PostMapping("/deploy/{procesoId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> deploy(@PathVariable String procesoId) {
@@ -121,6 +124,21 @@ public class CamundaController {
         log.info("Solicitud GET /api/camunda/tasks/{}", taskId);
         return ResponseEntity.ok(
                 ApiResponse.success("Detalle de tarea obtenido exitosamente", camundaService.obtenerTarea(taskId)));
+    }
+
+    @GetMapping("/tasks/{taskId}/documents")
+    public ResponseEntity<ApiResponse<TaskDocumentRuntimeResponseDto>> taskDocuments(@PathVariable String taskId) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401).body(ApiResponse.error("No hay una sesion autenticada"));
+        }
+
+        log.info("Solicitud GET /api/camunda/tasks/{}/documents para {}", taskId, authentication.getName());
+        Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Runtime documental de tarea obtenido",
+                documentTaskRuntimeService.getRuntime(taskSnapshot, authentication.getName())
+        ));
     }
 
     @PostMapping("/tasks/{taskId}/complete")

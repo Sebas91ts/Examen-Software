@@ -15,6 +15,17 @@ public interface TaskDocumentConfigRepository extends MongoRepository<TaskDocume
             String taskDefinitionKey
     );
 
+    Optional<TaskDocumentConfig> findFirstByProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCaseOrderByUpdatedAtDesc(
+            String processKey,
+            Integer processVersion,
+            String taskDefinitionKey
+    );
+
+    List<TaskDocumentConfig> findByProcessKeyIgnoreCaseAndProcessVersion(
+            String processKey,
+            Integer processVersion
+    );
+
     boolean existsByTenantIdAndProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
             String tenantId,
             String processKey,
@@ -27,4 +38,3 @@ public interface TaskDocumentConfigRepository extends MongoRepository<TaskDocume
             String processKey
     );
 }
-

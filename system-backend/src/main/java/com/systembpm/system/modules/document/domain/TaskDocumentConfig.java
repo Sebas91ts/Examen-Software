@@ -34,7 +34,19 @@ public class TaskDocumentConfig {
 
     private String taskDefinitionKey;
 
+    private List<DocumentRequirement> documentRequirements;
+
+    private String documentName;
+
+    private String description;
+
+    private String documentDirection;
+
     private Boolean required;
+
+    private Boolean allowMultipleFiles;
+
+    private Boolean allowUpload;
 
     private Boolean editable;
 
@@ -57,6 +69,14 @@ public class TaskDocumentConfig {
     private String templateDocumentId;
 
     private TaskDocumentPermissions permissions;
+
+    private String ownerAreaId;
+
+    private List<String> allowedAreaIds;
+
+    private List<DocumentAreaAccessRule> accessRules;
+
+    private Boolean shareWithNextArea;
 
     private Boolean autoGenerateOnTaskStart;
 

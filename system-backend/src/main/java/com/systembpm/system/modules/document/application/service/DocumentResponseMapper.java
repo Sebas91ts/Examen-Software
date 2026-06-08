@@ -2,8 +2,10 @@ package com.systembpm.system.modules.document.application.service;
 
 import com.systembpm.system.modules.document.application.dto.DocumentMetadataResponseDto;
 import com.systembpm.system.modules.document.application.dto.DocumentUploadResponseDto;
+import com.systembpm.system.modules.document.application.dto.DocumentAreaAccessRuleDto;
 import com.systembpm.system.modules.document.application.dto.TagResponseDto;
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
+import com.systembpm.system.modules.document.domain.DocumentAreaAccessRule;
 import com.systembpm.system.modules.document.domain.Tag;
 import com.systembpm.system.modules.document.infrastructure.repository.TagRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,9 @@ public class DocumentResponseMapper {
         return DocumentMetadataResponseDto.builder()
                 .id(metadata.getId())
                 .tenantId(metadata.getTenantId())
+                .ownerAreaId(metadata.getOwnerAreaId())
+                .allowedAreaIds(metadata.getAllowedAreaIds())
+                .accessRules(toAccessRuleDtos(metadata.getAccessRules()))
                 .processInstanceId(metadata.getProcessInstanceId())
                 .fileName(metadata.getFileName())
                 .originalName(metadata.getOriginalName())
@@ -40,6 +45,10 @@ public class DocumentResponseMapper {
                 .processVersion(metadata.getProcessVersion())
                 .taskDefinitionKey(metadata.getTaskDefinitionKey())
                 .taskInstanceId(metadata.getTaskInstanceId())
+                .documentRequirementId(metadata.getDocumentRequirementId())
+                .documentRequirementName(metadata.getDocumentRequirementName())
+                .documentDirection(metadata.getDocumentDirection())
+                .documentLifecyclePolicy(metadata.getDocumentLifecyclePolicy())
                 .documentState(metadata.getDocumentState())
                 .locked(metadata.getLocked())
                 .lockedBy(metadata.getLockedBy())
@@ -66,6 +75,9 @@ public class DocumentResponseMapper {
         return DocumentUploadResponseDto.builder()
                 .id(metadata.getId())
                 .tenantId(metadata.getTenantId())
+                .ownerAreaId(metadata.getOwnerAreaId())
+                .allowedAreaIds(metadata.getAllowedAreaIds())
+                .accessRules(toAccessRuleDtos(metadata.getAccessRules()))
                 .processInstanceId(metadata.getProcessInstanceId())
                 .fileName(metadata.getFileName())
                 .originalName(metadata.getOriginalName())
@@ -84,6 +96,10 @@ public class DocumentResponseMapper {
                 .processVersion(metadata.getProcessVersion())
                 .taskDefinitionKey(metadata.getTaskDefinitionKey())
                 .taskInstanceId(metadata.getTaskInstanceId())
+                .documentRequirementId(metadata.getDocumentRequirementId())
+                .documentRequirementName(metadata.getDocumentRequirementName())
+                .documentDirection(metadata.getDocumentDirection())
+                .documentLifecyclePolicy(metadata.getDocumentLifecyclePolicy())
                 .documentState(metadata.getDocumentState())
                 .locked(metadata.getLocked())
                 .lockedBy(metadata.getLockedBy())
@@ -126,6 +142,24 @@ public class DocumentResponseMapper {
         }
         return tagRepository.findByTenantIdAndIdInAndActiveTrue(metadata.getTenantId(), metadata.getTagIds()).stream()
                 .map(this::toTagResponse)
+                .toList();
+    }
+
+    public static List<DocumentAreaAccessRuleDto> toAccessRuleDtos(List<DocumentAreaAccessRule> rules) {
+        if (rules == null || rules.isEmpty()) {
+            return List.of();
+        }
+        return rules.stream()
+                .map(rule -> DocumentAreaAccessRuleDto.builder()
+                        .areaId(rule.getAreaId())
+                        .canView(rule.getCanView())
+                        .canUpload(rule.getCanUpload())
+                        .canEdit(rule.getCanEdit())
+                        .canDownload(rule.getCanDownload())
+                        .canApprove(rule.getCanApprove())
+                        .canReject(rule.getCanReject())
+                        .canLock(rule.getCanLock())
+                        .build())
                 .toList();
     }
 }

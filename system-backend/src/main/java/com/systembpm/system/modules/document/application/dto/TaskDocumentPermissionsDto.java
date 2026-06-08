@@ -15,5 +15,7 @@ public class TaskDocumentPermissionsDto {
     private Boolean canEdit;
     private Boolean canDelete;
     private Boolean canApprove;
+    private Boolean canDownload;
+    private Boolean canReject;
+    private Boolean canLock;
 }
-

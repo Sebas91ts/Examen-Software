@@ -50,6 +50,7 @@ jwt:
 
 camunda:
   base-url: ${CAMUNDA_BASE_URL:http://localhost:8081/engine-rest}
+  history-time-to-live-days: ${CAMUNDA_HISTORY_TIME_TO_LIVE_DAYS:180}
 
 onlyoffice:
   enabled: ${ONLYOFFICE_ENABLED:false}

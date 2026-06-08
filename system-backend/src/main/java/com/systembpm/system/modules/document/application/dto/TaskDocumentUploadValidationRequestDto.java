@@ -25,8 +25,9 @@ public class TaskDocumentUploadValidationRequestDto {
     @NotBlank(message = "processInstanceId es obligatorio")
     private String processInstanceId;
 
+    private String documentRequirementId;
+
     private String mimeType;
 
     private Long size;
 }
-

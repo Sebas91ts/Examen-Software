@@ -25,6 +25,7 @@ import java.util.List;
         @CompoundIndex(name = "idx_document_pending", def = "{'tenantId': 1, 'processInstanceId': 1, 'documentState': 1, 'updatedAt': -1}"),
         @CompoundIndex(name = "idx_document_folder_list", def = "{'tenantId': 1, 'folderId': 1, 'uploadedAt': -1}"),
         @CompoundIndex(name = "idx_document_enterprise_search", def = "{'tenantId': 1, 'folderId': 1, 'tagIds': 1, 'documentState': 1, 'processKey': 1, 'taskDefinitionKey': 1, 'uploadedAt': -1, 'createdAt': -1}"),
+        @CompoundIndex(name = "idx_document_area_access", def = "{'ownerAreaId': 1, 'allowedAreaIds': 1, 'updatedAt': -1}"),
         @CompoundIndex(name = "idx_document_editor_session", def = "{'tenantId': 1, 'onlyOfficeDocumentKey': 1, 'currentEditor': 1, 'editingStartedAt': -1}"),
         @CompoundIndex(name = "idx_document_s3_key", def = "{'s3Key': 1}", unique = true)
 })
@@ -35,6 +36,14 @@ public class DocumentMetadata {
 
     @Indexed
     private String tenantId;
+
+    @Indexed
+    private String ownerAreaId;
+
+    @Indexed
+    private List<String> allowedAreaIds;
+
+    private List<DocumentAreaAccessRule> accessRules;
 
     @Indexed
     private String processInstanceId;
@@ -74,6 +83,14 @@ public class DocumentMetadata {
     private String taskDefinitionKey;
 
     private String taskInstanceId;
+
+    private String documentRequirementId;
+
+    private String documentRequirementName;
+
+    private String documentDirection;
+
+    private String documentLifecyclePolicy;
 
     private DocumentLifecycleState documentState;
 
