@@ -1,5 +1,9 @@
 package com.systembpm.system.modules.document.application.service;
 
+import com.systembpm.system.modules.audit.application.dto.AuditRecordRequest;
+import com.systembpm.system.modules.audit.application.service.AuditService;
+import com.systembpm.system.modules.audit.domain.AuditAction;
+import com.systembpm.system.modules.audit.domain.AuditEntityType;
 import com.systembpm.system.modules.document.application.dto.DocumentMetadataResponseDto;
 import com.systembpm.system.modules.document.domain.DocumentMetadata;
 import com.systembpm.system.modules.document.domain.DocumentNotFoundException;
@@ -18,6 +22,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Slf4j
@@ -29,6 +34,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
     private final TagRepository tagRepository;
     private final UsuarioRepository usuarioRepository;
     private final DocumentResponseMapper documentResponseMapper;
+    private final AuditService auditService;
 
     @Override
     public DocumentMetadataResponseDto addTag(String documentId, String tagId, String requesterEmail) {
@@ -45,6 +51,7 @@ public class DocumentTagServiceImpl implements DocumentTagService {
         DocumentMetadata saved = documentMetadataRepository.save(document);
         log.info("document.tag.add tenantId={} documentId={} tagId={} user={}",
                 requester.getTenantId(), documentId, tagId, requester.getEmail());
+        recordTagEvent(AuditAction.DOCUMENT_TAG_ADDED, saved, requester, tagId);
         return documentResponseMapper.toMetadataResponse(saved);
     }
 
@@ -63,7 +70,33 @@ public class DocumentTagServiceImpl implements DocumentTagService {
         DocumentMetadata saved = documentMetadataRepository.save(document);
         log.info("document.tag.remove tenantId={} documentId={} tagId={} user={}",
                 requester.getTenantId(), documentId, tagId, requester.getEmail());
+        recordTagEvent(AuditAction.DOCUMENT_TAG_REMOVED, saved, requester, tagId);
         return documentResponseMapper.toMetadataResponse(saved);
+    }
+
+    private void recordTagEvent(AuditAction action, DocumentMetadata document, Usuario requester, String tagId) {
+        auditService.record(AuditRecordRequest.builder()
+                .action(action)
+                .entityType(AuditEntityType.DOCUMENT)
+                .entityId(document.getId())
+                .entityName(document.getOriginalName())
+                .actorEmail(requester.getEmail())
+                .tenantId(document.getTenantId())
+                .areaId(document.getOwnerAreaId() != null ? document.getOwnerAreaId() : document.getTenantId())
+                .processKey(document.getProcessKey())
+                .processVersion(document.getProcessVersion())
+                .processInstanceId(document.getProcessInstanceId())
+                .taskDefinitionKey(document.getTaskDefinitionKey())
+                .taskInstanceId(document.getTaskInstanceId())
+                .documentId(document.getId())
+                .documentName(document.getOriginalName())
+                .documentVersion(document.getVersion())
+                .documentState(document.getDocumentState() != null ? document.getDocumentState().name() : null)
+                .documentRequirementId(document.getDocumentRequirementId())
+                .documentRequirementName(document.getDocumentRequirementName())
+                .afterSnapshot(Map.of("tagIds", document.getTagIds() == null ? List.of() : document.getTagIds()))
+                .metadata(Map.of("tagId", tagId == null ? "" : tagId.trim()))
+                .build());
     }
 
     private DocumentMetadata findDocument(String documentId, String tenantId) {

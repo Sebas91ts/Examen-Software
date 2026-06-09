@@ -1,5 +1,9 @@
 package com.systembpm.system.modules.document.application.service;
 
+import com.systembpm.system.modules.audit.application.dto.AuditRecordRequest;
+import com.systembpm.system.modules.audit.application.service.AuditService;
+import com.systembpm.system.modules.audit.domain.AuditAction;
+import com.systembpm.system.modules.audit.domain.AuditEntityType;
 import com.systembpm.system.modules.document.application.dto.DocumentMetadataResponseDto;
 import com.systembpm.system.modules.document.domain.DocumentLifecycleState;
 import com.systembpm.system.modules.document.domain.DocumentAreaAccessRule;
@@ -36,6 +40,7 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
     private final DocumentMetadataRepository documentMetadataRepository;
     private final TaskDocumentConfigRepository taskDocumentConfigRepository;
     private final UsuarioRepository usuarioRepository;
+    private final AuditService auditService;
 
     @Override
     public DocumentMetadataResponseDto approve(String documentId, String comment, String requesterEmail) {
@@ -56,6 +61,7 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         DocumentMetadata saved = documentMetadataRepository.save(metadata);
         log.info("document.lifecycle.approve tenantId={} processInstanceId={} taskDefinitionKey={} taskInstanceId={} documentId={} user={}",
                 saved.getTenantId(), saved.getProcessInstanceId(), saved.getTaskDefinitionKey(), saved.getTaskInstanceId(), saved.getId(), requester.getEmail());
+        recordDocumentLifecycleEvent(AuditAction.DOCUMENT_APPROVED, saved, requester, comment);
         return toResponse(saved);
     }
 
@@ -78,6 +84,7 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         DocumentMetadata saved = documentMetadataRepository.save(metadata);
         log.info("document.lifecycle.reject tenantId={} processInstanceId={} taskDefinitionKey={} taskInstanceId={} documentId={} user={}",
                 saved.getTenantId(), saved.getProcessInstanceId(), saved.getTaskDefinitionKey(), saved.getTaskInstanceId(), saved.getId(), requester.getEmail());
+        recordDocumentLifecycleEvent(AuditAction.DOCUMENT_REJECTED, saved, requester, comment);
         return toResponse(saved);
     }
 
@@ -102,6 +109,7 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         DocumentMetadata saved = documentMetadataRepository.save(metadata);
         log.info("document.lifecycle.lock tenantId={} processInstanceId={} taskDefinitionKey={} taskInstanceId={} documentId={} user={}",
                 saved.getTenantId(), saved.getProcessInstanceId(), saved.getTaskDefinitionKey(), saved.getTaskInstanceId(), saved.getId(), requester.getEmail());
+        recordDocumentLifecycleEvent(AuditAction.DOCUMENT_LOCKED, saved, requester, null);
         return toResponse(saved);
     }
 
@@ -125,6 +133,7 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         DocumentMetadata saved = documentMetadataRepository.save(metadata);
         log.info("document.lifecycle.unlock tenantId={} processInstanceId={} taskDefinitionKey={} taskInstanceId={} documentId={} user={}",
                 saved.getTenantId(), saved.getProcessInstanceId(), saved.getTaskDefinitionKey(), saved.getTaskInstanceId(), saved.getId(), requester.getEmail());
+        recordDocumentLifecycleEvent(AuditAction.DOCUMENT_UNLOCKED, saved, requester, null);
         return toResponse(saved);
     }
 
@@ -227,6 +236,33 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         }
 
         documentMetadataRepository.saveAll(documents);
+        for (DocumentMetadata document : documents) {
+            auditService.record(AuditRecordRequest.builder()
+                    .action(AuditAction.DOCUMENT_WORKFLOW_UPDATED)
+                    .entityType(AuditEntityType.DOCUMENT)
+                    .entityId(document.getId())
+                    .entityName(document.getOriginalName())
+                    .actorEmail(requester.getEmail())
+                    .tenantId(document.getTenantId())
+                    .areaId(ownerArea(document))
+                    .processKey(document.getProcessKey())
+                    .processVersion(document.getProcessVersion())
+                    .processInstanceId(document.getProcessInstanceId())
+                    .taskDefinitionKey(document.getTaskDefinitionKey())
+                    .taskInstanceId(document.getTaskInstanceId())
+                    .documentId(document.getId())
+                    .documentName(document.getOriginalName())
+                    .documentVersion(document.getVersion())
+                    .documentState(document.getDocumentState() != null ? document.getDocumentState().name() : null)
+                    .documentRequirementId(document.getDocumentRequirementId())
+                    .documentRequirementName(document.getDocumentRequirementName())
+                    .metadata(Map.of(
+                            "workflowLifecycleUpdate", true,
+                            "readOnlyAfterComplete", readOnlyAfterComplete,
+                            "lockedBy", nullSafe(document.getLockedBy())
+                    ))
+                    .build());
+        }
         log.info("document.lifecycle.task-completed tenantId={} processInstanceId={} processKey={} version={} taskDefinitionKey={} taskInstanceId={} user={} updated={} readOnlyAfterComplete={}",
                 requester.getTenantId(), processInstanceId, processKey, processVersion, taskDefinitionKey, taskInstanceId, requester.getEmail(), documents.size(), readOnlyAfterComplete);
     }
@@ -344,6 +380,52 @@ public class DocumentLifecycleServiceImpl implements DocumentLifecycleService {
         List<String> comments = metadata.getComments() == null ? new ArrayList<>() : new ArrayList<>(metadata.getComments());
         comments.add(Instant.now() + " | " + user + " | " + comment.trim());
         metadata.setComments(comments);
+    }
+
+    private void recordDocumentLifecycleEvent(AuditAction action, DocumentMetadata document, Usuario requester, String comment) {
+        auditService.record(AuditRecordRequest.builder()
+                .action(action)
+                .entityType(AuditEntityType.DOCUMENT)
+                .entityId(document.getId())
+                .entityName(document.getOriginalName())
+                .actorEmail(requester.getEmail())
+                .tenantId(document.getTenantId())
+                .areaId(ownerArea(document))
+                .areaName(requester.getAreaNombre())
+                .processKey(document.getProcessKey())
+                .processVersion(document.getProcessVersion())
+                .processInstanceId(document.getProcessInstanceId())
+                .taskDefinitionKey(document.getTaskDefinitionKey())
+                .taskInstanceId(document.getTaskInstanceId())
+                .documentId(document.getId())
+                .documentName(document.getOriginalName())
+                .documentVersion(document.getVersion())
+                .documentState(document.getDocumentState() != null ? document.getDocumentState().name() : null)
+                .documentRequirementId(document.getDocumentRequirementId())
+                .documentRequirementName(document.getDocumentRequirementName())
+                .afterSnapshot(documentSnapshot(document))
+                .metadata(Map.of(
+                        "comment", nullSafe(comment),
+                        "locked", Boolean.TRUE.equals(document.getLocked()),
+                        "lockedBy", nullSafe(document.getLockedBy())
+                ))
+                .build());
+    }
+
+    private Map<String, Object> documentSnapshot(DocumentMetadata metadata) {
+        return Map.ofEntries(
+                Map.entry("documentId", nullSafe(metadata.getId())),
+                Map.entry("originalName", nullSafe(metadata.getOriginalName())),
+                Map.entry("documentState", metadata.getDocumentState() == null ? "" : metadata.getDocumentState().name()),
+                Map.entry("approvedBy", nullSafe(metadata.getApprovedBy())),
+                Map.entry("approvedAt", metadata.getApprovedAt() == null ? "" : metadata.getApprovedAt().toString()),
+                Map.entry("rejectedBy", nullSafe(metadata.getRejectedBy())),
+                Map.entry("rejectedAt", metadata.getRejectedAt() == null ? "" : metadata.getRejectedAt().toString()),
+                Map.entry("locked", Boolean.TRUE.equals(metadata.getLocked())),
+                Map.entry("lockedBy", nullSafe(metadata.getLockedBy())),
+                Map.entry("updatedBy", nullSafe(metadata.getUpdatedBy())),
+                Map.entry("updatedAt", metadata.getUpdatedAt() == null ? "" : metadata.getUpdatedAt().toString())
+        );
     }
 
     private DocumentMetadataResponseDto toResponse(DocumentMetadata metadata) {

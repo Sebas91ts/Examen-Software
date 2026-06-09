@@ -53,9 +53,8 @@ public class DashboardServiceImpl implements IDashboardService {
 
         long totalInstanciasActivas = obtenerTotalInstanciasActivas();
 
-        long totalTareasPendientes = obtenerTotalTareasPendientes();
-        List<TareaInstancia> tareasPendientes = tareaInstanciaRepository
-                .findByEstadoIgnoreCaseOrderByCreatedAtAsc(ESTADO_PENDIENTE);
+        List<PendingTaskSnapshot> tareasPendientes = obtenerTareasPendientes();
+        long totalTareasPendientes = tareasPendientes.size();
 
         List<TaskExecutionLog> logs = taskExecutionLogRepository.findAll(Sort.by(
                 Sort.Order.desc("completedAt"),
@@ -94,20 +93,42 @@ public class DashboardServiceImpl implements IDashboardService {
         return response;
     }
 
-    private long obtenerTotalTareasPendientes() {
+    private List<PendingTaskSnapshot> obtenerTareasPendientes() {
         try {
             return CompletableFuture
-                    .supplyAsync(() -> (long) camundaService.listarTareasTodas().size())
+                    .supplyAsync(() -> camundaService.listarTareasTodas().stream()
+                            .map(this::mapPendingTaskFromCamunda)
+                            .toList())
                     .orTimeout(CAMUNDA_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                     .exceptionally(ex -> {
-                        log.warn("No se pudo consultar Camunda para totalTareasPendientes. Se usara fallback local.", ex);
-                        return tareaInstanciaRepository.countByEstadoIgnoreCase(ESTADO_PENDIENTE);
+                        log.warn("No se pudo consultar Camunda para tareas pendientes. Se usara fallback local.", ex);
+                        return obtenerTareasPendientesLocales();
                     })
                     .join();
         } catch (Exception ex) {
-            log.warn("No se pudo obtener totalTareasPendientes ni desde Camunda ni desde fallback local", ex);
-            return tareaInstanciaRepository.countByEstadoIgnoreCase(ESTADO_PENDIENTE);
+            log.warn("No se pudo obtener tareas pendientes desde Camunda. Se usara fallback local.", ex);
+            return obtenerTareasPendientesLocales();
         }
+    }
+
+    private List<PendingTaskSnapshot> obtenerTareasPendientesLocales() {
+        return tareaInstanciaRepository
+                .findByEstadoIgnoreCaseOrderByCreatedAtAsc(ESTADO_PENDIENTE)
+                .stream()
+                .map(task -> new PendingTaskSnapshot(
+                        cleanLabel(task.getNombreTarea(), "Actividad no identificada"),
+                        cleanLabel(task.getAreaNombre(), "Area no identificada")))
+                .toList();
+    }
+
+    private PendingTaskSnapshot mapPendingTaskFromCamunda(Map<String, Object> task) {
+        String taskName = cleanLabel(
+                firstText(task.get("name"), task.get("taskName"), task.get("taskDefinitionKey")),
+                "Actividad no identificada");
+        String areaName = cleanLabel(
+                firstText(task.get("areaNombre"), task.get("areaName"), task.get("areaId")),
+                "Area no identificada");
+        return new PendingTaskSnapshot(taskName, areaName);
     }
 
     private long obtenerTotalInstanciasActivas() {
@@ -153,11 +174,10 @@ public class DashboardServiceImpl implements IDashboardService {
                 .toList();
     }
 
-    private List<DashboardMetricItemDto> groupPendingByArea(List<TareaInstancia> pendingTasks) {
+    private List<DashboardMetricItemDto> groupPendingByArea(List<PendingTaskSnapshot> pendingTasks) {
         Map<String, Long> totals = new LinkedHashMap<>();
-        for (TareaInstancia task : pendingTasks) {
-            String key = cleanLabel(task.getAreaNombre(), "Area no identificada");
-            totals.merge(key, 1L, Long::sum);
+        for (PendingTaskSnapshot task : pendingTasks) {
+            totals.merge(task.areaName(), 1L, Long::sum);
         }
 
         return totals.entrySet().stream()
@@ -204,11 +224,10 @@ public class DashboardServiceImpl implements IDashboardService {
                 .toList();
     }
 
-    private DashboardMetricItemDto topPendingByTask(List<TareaInstancia> pendingTasks) {
+    private DashboardMetricItemDto topPendingByTask(List<PendingTaskSnapshot> pendingTasks) {
         Map<String, Long> totals = new LinkedHashMap<>();
-        for (TareaInstancia task : pendingTasks) {
-            String key = cleanLabel(task.getNombreTarea(), "Actividad no identificada");
-            totals.merge(key, 1L, Long::sum);
+        for (PendingTaskSnapshot task : pendingTasks) {
+            totals.merge(task.taskName(), 1L, Long::sum);
         }
 
         return totals.entrySet().stream()
@@ -235,16 +254,6 @@ public class DashboardServiceImpl implements IDashboardService {
     }
 
     private TaskAverageWait resolveTaskWithLongestAverageWait(List<TaskExecutionLog> logs) {
-        record WaitAccumulator(long totalMinutes, long samples) {
-            WaitAccumulator add(long minutes) {
-                return new WaitAccumulator(totalMinutes + minutes, samples + 1);
-            }
-
-            long averageMinutes() {
-                return samples == 0 ? 0 : Math.round((double) totalMinutes / samples);
-            }
-        }
-
         Map<String, WaitAccumulator> totals = new LinkedHashMap<>();
         for (TaskExecutionLog logEntry : logs) {
             if (logEntry.getCreatedAt() == null || logEntry.getCompletedAt() == null) {
@@ -268,6 +277,35 @@ public class DashboardServiceImpl implements IDashboardService {
             return fallback;
         }
         return value.trim();
+    }
+
+    private String firstText(Object... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Object value : values) {
+            if (value == null) {
+                continue;
+            }
+            String text = String.valueOf(value).trim();
+            if (!text.isBlank()) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private record PendingTaskSnapshot(String taskName, String areaName) {
+    }
+
+    private record WaitAccumulator(long totalMinutes, long samples) {
+        WaitAccumulator add(long minutes) {
+            return new WaitAccumulator(totalMinutes + minutes, samples + 1);
+        }
+
+        long averageMinutes() {
+            return samples == 0 ? 0 : Math.round((double) totalMinutes / samples);
+        }
     }
 
     private record TaskAverageWait(String label, long averageMinutes) {

@@ -1,5 +1,9 @@
 package com.systembpm.system.modules.document.application.service;
 
+import com.systembpm.system.modules.audit.application.dto.AuditRecordRequest;
+import com.systembpm.system.modules.audit.application.service.AuditService;
+import com.systembpm.system.modules.audit.domain.AuditAction;
+import com.systembpm.system.modules.audit.domain.AuditEntityType;
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeCallbackRequestDto;
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeCallbackResponseDto;
 import com.systembpm.system.modules.document.application.dto.OnlyOfficeEditingSessionResponseDto;
@@ -55,6 +59,7 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
     private final DocumentStoragePort documentStoragePort;
     private final OnlyOfficeProperties onlyOfficeProperties;
     private final RestTemplate restTemplate;
+    private final AuditService auditService;
 
     @Override
     public OnlyOfficeEditorConfigResponseDto getEditorConfig(String documentId, String requesterEmail) {
@@ -139,6 +144,10 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
 
         log.info("onlyoffice.start-editing tenantId={} documentId={} user={} collaborative={}",
                 requester.getTenantId(), documentId, requester.getEmail(), collaborative);
+        recordOnlyOfficeEvent(AuditAction.DOCUMENT_EDITING_STARTED, saved, requester.getEmail(), Map.of(
+                "collaborativeEditing", collaborative,
+                "documentKey", nullSafe(saved.getOnlyOfficeDocumentKey())
+        ));
         return editingResponse(saved, true, "Sesion de edicion OnlyOffice iniciada");
     }
 
@@ -155,6 +164,9 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         document.setUpdatedBy(requester.getEmail());
         DocumentMetadata saved = documentMetadataRepository.save(document);
         log.info("onlyoffice.finish-editing tenantId={} documentId={} user={}", requester.getTenantId(), documentId, requester.getEmail());
+        recordOnlyOfficeEvent(AuditAction.DOCUMENT_EDITING_FINISHED, saved, requester.getEmail(), Map.of(
+                "documentKey", nullSafe(saved.getOnlyOfficeDocumentKey())
+        ));
         return editingResponse(saved, false, "Sesion de edicion OnlyOffice finalizada");
     }
 
@@ -312,6 +324,12 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
 
         log.info("onlyoffice.save.upload-success tenantId={} documentId={} s3Key={} bytes={} updatedBy={} versionUnchanged={}",
                 saved.getTenantId(), saved.getId(), saved.getS3Key(), saved.getSize(), saved.getUpdatedBy(), saved.getVersion());
+        recordOnlyOfficeEvent(AuditAction.DOCUMENT_SAVED_FROM_ONLYOFFICE, saved, saved.getUpdatedBy(), Map.of(
+                "documentKey", nullSafe(saved.getOnlyOfficeDocumentKey()),
+                "s3Key", nullSafe(saved.getS3Key()),
+                "bytes", content.length,
+                "versionUnchanged", saved.getVersion() == null ? 1 : saved.getVersion()
+        ));
     }
 
     private void clearEditingSession(DocumentMetadata document, String updatedBy) {
@@ -460,6 +478,39 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
                 .editingStartedAt(document.getEditingStartedAt())
                 .message(message)
                 .build();
+    }
+
+    private void recordOnlyOfficeEvent(AuditAction action, DocumentMetadata document, String actorEmail, Map<String, Object> metadata) {
+        auditService.record(AuditRecordRequest.builder()
+                .action(action)
+                .entityType(AuditEntityType.DOCUMENT)
+                .entityId(document.getId())
+                .entityName(document.getOriginalName())
+                .actorEmail(actorEmail)
+                .tenantId(document.getTenantId())
+                .areaId(ownerArea(document))
+                .processKey(document.getProcessKey())
+                .processVersion(document.getProcessVersion())
+                .processInstanceId(document.getProcessInstanceId())
+                .taskDefinitionKey(document.getTaskDefinitionKey())
+                .taskInstanceId(document.getTaskInstanceId())
+                .documentId(document.getId())
+                .documentName(document.getOriginalName())
+                .documentVersion(document.getVersion())
+                .documentState(document.getDocumentState() != null ? document.getDocumentState().name() : null)
+                .documentRequirementId(document.getDocumentRequirementId())
+                .documentRequirementName(document.getDocumentRequirementName())
+                .afterSnapshot(Map.ofEntries(
+                        Map.entry("documentId", nullSafe(document.getId())),
+                        Map.entry("originalName", nullSafe(document.getOriginalName())),
+                        Map.entry("size", document.getSize() == null ? 0L : document.getSize()),
+                        Map.entry("updatedBy", nullSafe(document.getUpdatedBy())),
+                        Map.entry("updatedAt", document.getUpdatedAt() == null ? "" : document.getUpdatedAt().toString()),
+                        Map.entry("currentEditor", nullSafe(document.getCurrentEditor())),
+                        Map.entry("editingStartedAt", document.getEditingStartedAt() == null ? "" : document.getEditingStartedAt().toString())
+                ))
+                .metadata(metadata == null ? Map.of() : metadata)
+                .build());
     }
 
     private OnlyOfficeCallbackResponseDto callbackOk(String message) {

@@ -1,5 +1,9 @@
 package com.systembpm.system.modules.document.application.service;
 
+import com.systembpm.system.modules.audit.application.dto.AuditRecordRequest;
+import com.systembpm.system.modules.audit.application.service.AuditService;
+import com.systembpm.system.modules.audit.domain.AuditAction;
+import com.systembpm.system.modules.audit.domain.AuditEntityType;
 import com.systembpm.system.modules.document.application.dto.DocumentDownloadUrlResponseDto;
 import com.systembpm.system.modules.document.application.dto.DocumentAreaAccessRuleDto;
 import com.systembpm.system.modules.document.application.dto.DocumentMetadataResponseDto;
@@ -48,6 +52,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -66,6 +71,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final FolderRepository folderRepository;
     private final TaskDocumentConfigRepository taskDocumentConfigRepository;
     private final ProcesoRepository procesoRepository;
+    private final AuditService auditService;
 
     @Override
     public DocumentUploadResponseDto upload(DocumentUploadRequestDto request, MultipartFile file, String uploadedBy) {
@@ -179,6 +185,34 @@ public class DocumentServiceImpl implements DocumentService {
 
         log.info("document.upload.success tenantId={} processInstanceId={} documentId={} version={} size={}",
                 saved.getTenantId(), saved.getProcessInstanceId(), saved.getId(), saved.getVersion(), saved.getSize());
+        auditService.record(AuditRecordRequest.builder()
+                .action(AuditAction.DOCUMENT_UPLOADED)
+                .entityType(AuditEntityType.DOCUMENT)
+                .entityId(saved.getId())
+                .entityName(saved.getOriginalName())
+                .actorEmail(requester.getEmail())
+                .tenantId(saved.getTenantId())
+                .areaId(ownerArea(saved))
+                .processKey(saved.getProcessKey())
+                .processVersion(saved.getProcessVersion())
+                .processInstanceId(saved.getProcessInstanceId())
+                .taskDefinitionKey(saved.getTaskDefinitionKey())
+                .taskInstanceId(saved.getTaskInstanceId())
+                .documentId(saved.getId())
+                .documentName(saved.getOriginalName())
+                .documentVersion(saved.getVersion())
+                .documentState(saved.getDocumentState() != null ? saved.getDocumentState().name() : null)
+                .documentRequirementId(saved.getDocumentRequirementId())
+                .documentRequirementName(saved.getDocumentRequirementName())
+                .afterSnapshot(documentSnapshot(saved))
+                .metadata(Map.of(
+                        "mimeType", nullSafe(saved.getMimeType()),
+                        "size", saved.getSize() == null ? 0L : saved.getSize(),
+                        "s3Key", nullSafe(saved.getS3Key()),
+                        "folderId", nullSafe(saved.getFolderId()),
+                        "sharedAreas", saved.getAllowedAreaIds() == null ? List.of() : saved.getAllowedAreaIds()
+                ))
+                .build());
         return toUploadResponse(saved);
     }
 
@@ -190,6 +224,25 @@ public class DocumentServiceImpl implements DocumentService {
         DocumentMetadata updated = updateLastAccessed(metadata, authenticatedUser.getEmail());
         log.info("document.metadata.read tenantId={} processInstanceId={} documentId={} user={} lastAccessedAt={}",
                 updated.getTenantId(), updated.getProcessInstanceId(), updated.getId(), authenticatedUser.getEmail(), updated.getLastAccessedAt());
+        auditService.record(AuditRecordRequest.builder()
+                .action(AuditAction.DOCUMENT_METADATA_VIEWED)
+                .entityType(AuditEntityType.DOCUMENT)
+                .entityId(updated.getId())
+                .entityName(updated.getOriginalName())
+                .actorEmail(authenticatedUser.getEmail())
+                .tenantId(updated.getTenantId())
+                .areaId(ownerArea(updated))
+                .processKey(updated.getProcessKey())
+                .processVersion(updated.getProcessVersion())
+                .processInstanceId(updated.getProcessInstanceId())
+                .taskDefinitionKey(updated.getTaskDefinitionKey())
+                .taskInstanceId(updated.getTaskInstanceId())
+                .documentId(updated.getId())
+                .documentName(updated.getOriginalName())
+                .documentVersion(updated.getVersion())
+                .documentState(updated.getDocumentState() != null ? updated.getDocumentState().name() : null)
+                .metadata(Map.of("lastAccessedAt", updated.getLastAccessedAt()))
+                .build());
         return toMetadataResponse(updated);
     }
 
@@ -221,6 +274,25 @@ public class DocumentServiceImpl implements DocumentService {
                 authenticatedUser.getEmail(),
                 presignedUrl.expiresAt(),
                 updated.getLastAccessedAt());
+        auditService.record(AuditRecordRequest.builder()
+                .action(AuditAction.DOCUMENT_DOWNLOAD_REQUESTED)
+                .entityType(AuditEntityType.DOCUMENT)
+                .entityId(updated.getId())
+                .entityName(updated.getOriginalName())
+                .actorEmail(authenticatedUser.getEmail())
+                .tenantId(updated.getTenantId())
+                .areaId(ownerArea(updated))
+                .processKey(updated.getProcessKey())
+                .processVersion(updated.getProcessVersion())
+                .processInstanceId(updated.getProcessInstanceId())
+                .taskDefinitionKey(updated.getTaskDefinitionKey())
+                .taskInstanceId(updated.getTaskInstanceId())
+                .documentId(updated.getId())
+                .documentName(updated.getOriginalName())
+                .documentVersion(updated.getVersion())
+                .documentState(updated.getDocumentState() != null ? updated.getDocumentState().name() : null)
+                .metadata(Map.of("expiresAt", presignedUrl.expiresAt(), "fileName", updated.getOriginalName()))
+                .build());
 
         return DocumentDownloadUrlResponseDto.builder()
                 .documentId(updated.getId())
@@ -844,6 +916,28 @@ public class DocumentServiceImpl implements DocumentService {
         return !isBlank(metadata.getOwnerAreaId()) ? metadata.getOwnerAreaId() : metadata.getTenantId();
     }
 
+    private Map<String, Object> documentSnapshot(DocumentMetadata metadata) {
+        if (metadata == null) {
+            return Map.of();
+        }
+        return Map.ofEntries(
+                Map.entry("documentId", nullSafe(metadata.getId())),
+                Map.entry("originalName", nullSafe(metadata.getOriginalName())),
+                Map.entry("mimeType", nullSafe(metadata.getMimeType())),
+                Map.entry("size", metadata.getSize() == null ? 0L : metadata.getSize()),
+                Map.entry("version", metadata.getVersion() == null ? 1 : metadata.getVersion()),
+                Map.entry("status", metadata.getStatus() == null ? "" : metadata.getStatus().name()),
+                Map.entry("documentState", metadata.getDocumentState() == null ? "" : metadata.getDocumentState().name()),
+                Map.entry("ownerAreaId", nullSafe(metadata.getOwnerAreaId())),
+                Map.entry("allowedAreaIds", metadata.getAllowedAreaIds() == null ? List.of() : metadata.getAllowedAreaIds()),
+                Map.entry("processInstanceId", nullSafe(metadata.getProcessInstanceId())),
+                Map.entry("taskDefinitionKey", nullSafe(metadata.getTaskDefinitionKey())),
+                Map.entry("taskInstanceId", nullSafe(metadata.getTaskInstanceId())),
+                Map.entry("documentRequirementId", nullSafe(metadata.getDocumentRequirementId())),
+                Map.entry("documentRequirementName", nullSafe(metadata.getDocumentRequirementName()))
+        );
+    }
+
     private DocumentAreaAccessRule findRule(DocumentMetadata metadata, String areaId) {
         if (metadata.getAccessRules() == null || areaId == null) {
             return null;
@@ -915,6 +1009,10 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String nullSafe(String value) {
         return value == null ? "" : value;
     }
 
