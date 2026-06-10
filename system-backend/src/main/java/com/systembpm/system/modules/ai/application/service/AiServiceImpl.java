@@ -18,6 +18,7 @@ public class AiServiceImpl implements IAiService {
     private final BpmnGeneratorService bpmnGeneratorService;
     private final ProcessAiAnalysisService processAiAnalysisService;
     private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
+    private final AiBusinessContextService aiBusinessContextService;
 
     @Override
     public ApiResponse<?> assistant(AssistantRequestDto request) {
@@ -65,6 +66,50 @@ public class AiServiceImpl implements IAiService {
     @Override
     public ApiResponse<?> fillForm(FormFillRequestDto request) {
         return execute("/ai/fill-form", request, FormFillResponseDto.class, "fill form");
+    }
+
+    @Override
+    public ApiResponse<?> assist(AiBusinessContextRequestDto request, String requesterEmail) {
+        AiBusinessContextPayloadDto context = aiBusinessContextService.buildContext(request, requesterEmail);
+        return execute("/ai/assist", context, AiAssistResponseDto.class, "assist");
+    }
+
+    @Override
+    public ApiResponse<?> recommendProcess(AiBusinessContextRequestDto request, String requesterEmail) {
+        AiBusinessContextPayloadDto context = aiBusinessContextService.buildContext(request, requesterEmail);
+        return execute("/ai/recommend-process", context, AiProcessRecommendationResponseDto.class, "recommend process");
+    }
+
+    @Override
+    public ApiResponse<?> planReport(AiBusinessContextRequestDto request, String requesterEmail) {
+        AiBusinessContextPayloadDto context = aiBusinessContextService.buildContext(request, requesterEmail);
+        return execute("/ai/reports", context, AiReportPlanResponseDto.class, "report planning");
+    }
+
+    @Override
+    public ApiResponse<?> analyzeDocument(AiDocumentAnalysisRequestDto request, String requesterEmail) {
+        return execute("/ai/document-analysis", request, AiDocumentAnalysisResponseDto.class, "document analysis");
+    }
+
+    @Override
+    public ApiResponse<?> context(AiBusinessContextRequestDto request, String requesterEmail) {
+        return ApiResponse.success(
+                "Contexto IA construido correctamente.",
+                aiBusinessContextService.buildContext(request, requesterEmail));
+    }
+
+    @Override
+    public ApiResponse<?> voice(AiVoiceRequestDto request, String requesterEmail) {
+        AiBusinessContextRequestDto contextualRequest = AiBusinessContextRequestDto.builder()
+                .message(request.getTranscript())
+                .taskId(request.getTaskId())
+                .processInstanceId(request.getProcessInstanceId())
+                .processKey(request.getProcessKey())
+                .documentId(request.getDocumentId())
+                .formId(request.getFormId())
+                .build();
+        AiBusinessContextPayloadDto context = aiBusinessContextService.buildContext(contextualRequest, requesterEmail);
+        return execute("/ai/voice", context, AiAssistResponseDto.class, "voice assist");
     }
 
     @Override
