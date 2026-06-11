@@ -111,6 +111,36 @@ public class AiController {
         return ResponseEntity.ok(aiService.voice(request, authenticatedEmail(authentication)));
     }
 
+    @PostMapping("/routing/task-risk/{taskId}")
+    public ResponseEntity<ApiResponse<?>> predictTaskRisk(
+            @PathVariable String taskId,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/routing/task-risk/{}", taskId);
+        return ResponseEntity.ok(aiService.predictTaskRisk(taskId, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/routing/instance-risk/{processInstanceId}")
+    public ResponseEntity<ApiResponse<?>> predictInstanceRisk(
+            @PathVariable String processInstanceId,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/routing/instance-risk/{}", processInstanceId);
+        return ResponseEntity.ok(aiService.predictInstanceRisk(processInstanceId, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/routing/recommend-assignment/{taskId}")
+    public ResponseEntity<ApiResponse<?>> recommendAssignment(
+            @PathVariable String taskId,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/routing/recommend-assignment/{}", taskId);
+        return ResponseEntity.ok(aiService.recommendAssignment(taskId, authenticatedEmail(authentication)));
+    }
+
+    @GetMapping("/routing/dashboard")
+    public ResponseEntity<ApiResponse<?>> intelligentRoutingDashboard(Authentication authentication) {
+        log.info("Solicitud GET /api/ai/routing/dashboard");
+        return ResponseEntity.ok(aiService.intelligentRoutingDashboard(authenticatedEmail(authentication)));
+    }
+
     @PostMapping("/analyze-process")
     public ResponseEntity<ApiResponse<?>> analyzeProcess(@Valid @RequestBody ProcessAnalysisRequestDto request) {
         log.info("Solicitud POST /api/ai/analyze-process");

@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 
+import java.util.Map;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -19,6 +21,7 @@ public class AiServiceImpl implements IAiService {
     private final ProcessAiAnalysisService processAiAnalysisService;
     private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
     private final AiBusinessContextService aiBusinessContextService;
+    private final AiRoutingContextService aiRoutingContextService;
 
     @Override
     public ApiResponse<?> assistant(AssistantRequestDto request) {
@@ -110,6 +113,42 @@ public class AiServiceImpl implements IAiService {
                 .build();
         AiBusinessContextPayloadDto context = aiBusinessContextService.buildContext(contextualRequest, requesterEmail);
         return execute("/ai/voice", context, AiAssistResponseDto.class, "voice assist");
+    }
+
+    @Override
+    public ApiResponse<?> predictTaskRisk(String taskId, String requesterEmail) {
+        return execute(
+                "/ai/routing/predict-task",
+                aiRoutingContextService.buildTaskContext(taskId, requesterEmail),
+                Map.class,
+                "predict task risk");
+    }
+
+    @Override
+    public ApiResponse<?> predictInstanceRisk(String processInstanceId, String requesterEmail) {
+        return execute(
+                "/ai/routing/predict-instance",
+                aiRoutingContextService.buildInstanceContext(processInstanceId, requesterEmail),
+                Map.class,
+                "predict instance risk");
+    }
+
+    @Override
+    public ApiResponse<?> recommendAssignment(String taskId, String requesterEmail) {
+        return execute(
+                "/ai/routing/recommend-assignment",
+                aiRoutingContextService.buildTaskContext(taskId, requesterEmail),
+                Map.class,
+                "recommend assignment");
+    }
+
+    @Override
+    public ApiResponse<?> intelligentRoutingDashboard(String requesterEmail) {
+        return execute(
+                "/ai/routing/dashboard",
+                aiRoutingContextService.buildDashboardContext(requesterEmail),
+                Map.class,
+                "intelligent routing dashboard");
     }
 
     @Override

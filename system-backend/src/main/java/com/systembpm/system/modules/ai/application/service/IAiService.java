@@ -36,6 +36,14 @@ public interface IAiService {
 
     ApiResponse<?> voice(AiVoiceRequestDto request, String requesterEmail);
 
+    ApiResponse<?> predictTaskRisk(String taskId, String requesterEmail);
+
+    ApiResponse<?> predictInstanceRisk(String processInstanceId, String requesterEmail);
+
+    ApiResponse<?> recommendAssignment(String taskId, String requesterEmail);
+
+    ApiResponse<?> intelligentRoutingDashboard(String requesterEmail);
+
     ApiResponse<?> analyzeProcess(ProcessAnalysisRequestDto request);
 
     ApiResponse<?> listProcessAnalyses();
