@@ -9,12 +9,18 @@ import com.systembpm.system.modules.form.domain.FormDefinition;
 import com.systembpm.system.modules.form.domain.FormFieldDefinition;
 import com.systembpm.system.modules.form.domain.FormFieldOptionDefinition;
 import com.systembpm.system.modules.form.infrastructure.repository.FormDefinitionRepository;
+import com.systembpm.system.modules.document.domain.DocumentAreaAccessRule;
+import com.systembpm.system.modules.document.domain.DocumentRequirement;
+import com.systembpm.system.modules.document.domain.TaskDocumentConfig;
+import com.systembpm.system.modules.document.domain.TaskDocumentPermissions;
+import com.systembpm.system.modules.document.infrastructure.repository.TaskDocumentConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.text.Normalizer;
 import java.io.StringReader;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -41,6 +47,7 @@ public class ProcesoServiceImpl implements IProcesoService {
     private final ProcesoRepository procesoRepository;
     private final CamundaService camundaService;
     private final FormDefinitionRepository formDefinitionRepository;
+    private final TaskDocumentConfigRepository taskDocumentConfigRepository;
     private final BpmnXmlSanitizerService bpmnXmlSanitizerService;
 
     @Override
@@ -228,6 +235,7 @@ public class ProcesoServiceImpl implements IProcesoService {
 
         Proceso procesoGuardado = procesoRepository.save(nuevaVersion);
         clonarFormulariosDeVersionAnterior(procesoOrigen, procesoGuardado);
+        clonarConfiguracionesDocumentalesDeVersionAnterior(procesoOrigen, procesoGuardado);
         log.info("Nueva version creada exitosamente con ID: {}", procesoGuardado.getId());
 
         return procesoGuardado;
@@ -277,6 +285,144 @@ public class ProcesoServiceImpl implements IProcesoService {
             formDefinitionRepository.saveAll(formulariosClonados);
             log.info("Se clonaron {} formularios de la version {} a la version {}", formulariosClonados.size(), versionAnterior, nuevaVersionNumero);
         }
+    }
+
+    private void clonarConfiguracionesDocumentalesDeVersionAnterior(Proceso procesoOrigen, Proceso nuevaVersion) {
+        if (procesoOrigen == null || nuevaVersion == null) {
+            return;
+        }
+
+        String processKey = nuevaVersion.getProcessKey();
+        Integer versionAnterior = procesoOrigen.getVersion();
+        Integer nuevaVersionNumero = nuevaVersion.getVersion();
+
+        if (processKey == null || processKey.isBlank() || versionAnterior == null || nuevaVersionNumero == null) {
+            return;
+        }
+
+        List<TaskDocumentConfig> configuracionesOrigen = taskDocumentConfigRepository
+                .findByProcessKeyIgnoreCaseAndProcessVersion(processKey, versionAnterior);
+
+        if (configuracionesOrigen.isEmpty()) {
+            return;
+        }
+
+        Instant now = Instant.now();
+        List<TaskDocumentConfig> configuracionesClonadas = configuracionesOrigen.stream()
+                .filter(config -> !taskDocumentConfigRepository.existsByTenantIdAndProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
+                        config.getTenantId(),
+                        processKey,
+                        nuevaVersionNumero,
+                        config.getTaskDefinitionKey()))
+                .map(config -> TaskDocumentConfig.builder()
+                        .tenantId(config.getTenantId())
+                        .processKey(config.getProcessKey())
+                        .processVersion(nuevaVersionNumero)
+                        .taskDefinitionKey(config.getTaskDefinitionKey())
+                        .documentRequirements(clonarRequerimientosDocumentales(config.getDocumentRequirements()))
+                        .documentName(config.getDocumentName())
+                        .description(config.getDescription())
+                        .documentDirection(config.getDocumentDirection())
+                        .required(config.getRequired())
+                        .allowMultipleFiles(config.getAllowMultipleFiles())
+                        .allowUpload(config.getAllowUpload())
+                        .editable(config.getEditable())
+                        .allowEditing(config.getAllowEditing())
+                        .collaborativeEditing(config.getCollaborativeEditing())
+                        .allowVersioning(config.getAllowVersioning())
+                        .allowedMimeTypes(copiarLista(config.getAllowedMimeTypes()))
+                        .maxFileSizeBytes(config.getMaxFileSizeBytes())
+                        .maxFiles(config.getMaxFiles())
+                        .readOnlyAfterComplete(config.getReadOnlyAfterComplete())
+                        .requireApproval(config.getRequireApproval())
+                        .templateDocumentId(config.getTemplateDocumentId())
+                        .permissions(clonarPermisosDocumentales(config.getPermissions()))
+                        .ownerAreaId(config.getOwnerAreaId())
+                        .allowedAreaIds(copiarLista(config.getAllowedAreaIds()))
+                        .accessRules(clonarReglasDocumentales(config.getAccessRules()))
+                        .shareWithNextArea(config.getShareWithNextArea())
+                        .autoGenerateOnTaskStart(config.getAutoGenerateOnTaskStart())
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .createdBy(config.getCreatedBy())
+                        .updatedBy(config.getUpdatedBy())
+                        .build())
+                .collect(Collectors.toList());
+
+        if (!configuracionesClonadas.isEmpty()) {
+            taskDocumentConfigRepository.saveAll(configuracionesClonadas);
+            log.info("Se clonaron {} configuraciones documentales de la version {} a la version {}",
+                    configuracionesClonadas.size(), versionAnterior, nuevaVersionNumero);
+        }
+    }
+
+    private List<DocumentRequirement> clonarRequerimientosDocumentales(List<DocumentRequirement> requirements) {
+        if (requirements == null || requirements.isEmpty()) {
+            return List.of();
+        }
+
+        return requirements.stream()
+                .map(requirement -> DocumentRequirement.builder()
+                        .id(requirement.getId())
+                        .name(requirement.getName())
+                        .description(requirement.getDescription())
+                        .documentDirection(requirement.getDocumentDirection())
+                        .required(requirement.getRequired())
+                        .allowUpload(requirement.getAllowUpload())
+                        .allowMultipleFiles(requirement.getAllowMultipleFiles())
+                        .editable(requirement.getEditable())
+                        .collaborativeEditing(requirement.getCollaborativeEditing())
+                        .requireApproval(requirement.getRequireApproval())
+                        .readOnlyAfterComplete(requirement.getReadOnlyAfterComplete())
+                        .allowedMimeTypes(copiarLista(requirement.getAllowedMimeTypes()))
+                        .maxFileSizeBytes(requirement.getMaxFileSizeBytes())
+                        .maxFiles(requirement.getMaxFiles())
+                        .ownerAreaId(requirement.getOwnerAreaId())
+                        .allowedAreaIds(copiarLista(requirement.getAllowedAreaIds()))
+                        .accessRules(clonarReglasDocumentales(requirement.getAccessRules()))
+                        .documentLifecyclePolicy(requirement.getDocumentLifecyclePolicy())
+                        .build())
+                .toList();
+    }
+
+    private List<DocumentAreaAccessRule> clonarReglasDocumentales(List<DocumentAreaAccessRule> rules) {
+        if (rules == null || rules.isEmpty()) {
+            return List.of();
+        }
+
+        return rules.stream()
+                .map(rule -> DocumentAreaAccessRule.builder()
+                        .areaId(rule.getAreaId())
+                        .canView(rule.getCanView())
+                        .canUpload(rule.getCanUpload())
+                        .canEdit(rule.getCanEdit())
+                        .canDownload(rule.getCanDownload())
+                        .canApprove(rule.getCanApprove())
+                        .canReject(rule.getCanReject())
+                        .canLock(rule.getCanLock())
+                        .build())
+                .toList();
+    }
+
+    private TaskDocumentPermissions clonarPermisosDocumentales(TaskDocumentPermissions permissions) {
+        if (permissions == null) {
+            return null;
+        }
+
+        return TaskDocumentPermissions.builder()
+                .canView(permissions.getCanView())
+                .canUpload(permissions.getCanUpload())
+                .canEdit(permissions.getCanEdit())
+                .canDelete(permissions.getCanDelete())
+                .canApprove(permissions.getCanApprove())
+                .canDownload(permissions.getCanDownload())
+                .canReject(permissions.getCanReject())
+                .canLock(permissions.getCanLock())
+                .build();
+    }
+
+    private List<String> copiarLista(List<String> values) {
+        return values == null || values.isEmpty() ? List.of() : List.copyOf(values);
     }
 
     private List<FormFieldDefinition> clonarCampos(List<FormFieldDefinition> fields) {

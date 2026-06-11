@@ -45,6 +45,8 @@ public class Usuario implements UserDetails {
 
     private String areaNombre;
 
+    private String tenantId;
+
     // Roles del usuario (ej: ROLE_ADMIN, ROLE_USER, ROLE_BPM_MANAGER)
     private List<String> roles;
 

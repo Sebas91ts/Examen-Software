@@ -2,6 +2,9 @@ package com.systembpm.system.modules.ai.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
 import com.systembpm.system.modules.ai.application.dto.AnalysisRequestDto;
+import com.systembpm.system.modules.ai.application.dto.AiBusinessContextRequestDto;
+import com.systembpm.system.modules.ai.application.dto.AiDocumentAnalysisRequestDto;
+import com.systembpm.system.modules.ai.application.dto.AiVoiceRequestDto;
 import com.systembpm.system.modules.ai.application.dto.AssistantRequestDto;
 import com.systembpm.system.modules.ai.application.dto.EditDiagramRequestDto;
 import com.systembpm.system.modules.ai.application.dto.DiagramRequestDto;
@@ -60,6 +63,84 @@ public class AiController {
         return ResponseEntity.ok(aiService.fillForm(request));
     }
 
+    @PostMapping("/assist")
+    public ResponseEntity<ApiResponse<?>> assist(
+            @Valid @RequestBody AiBusinessContextRequestDto request,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/assist");
+        return ResponseEntity.ok(aiService.assist(request, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/recommend-process")
+    public ResponseEntity<ApiResponse<?>> recommendProcess(
+            @Valid @RequestBody AiBusinessContextRequestDto request,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/recommend-process");
+        return ResponseEntity.ok(aiService.recommendProcess(request, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/reports")
+    public ResponseEntity<ApiResponse<?>> planReport(
+            @Valid @RequestBody AiBusinessContextRequestDto request,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/reports");
+        return ResponseEntity.ok(aiService.planReport(request, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/document-analysis")
+    public ResponseEntity<ApiResponse<?>> analyzeDocument(
+            @Valid @RequestBody AiDocumentAnalysisRequestDto request,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/document-analysis");
+        return ResponseEntity.ok(aiService.analyzeDocument(request, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/context")
+    public ResponseEntity<ApiResponse<?>> context(
+            @Valid @RequestBody AiBusinessContextRequestDto request,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/context");
+        return ResponseEntity.ok(aiService.context(request, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/voice")
+    public ResponseEntity<ApiResponse<?>> voice(
+            @Valid @RequestBody AiVoiceRequestDto request,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/voice");
+        return ResponseEntity.ok(aiService.voice(request, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/routing/task-risk/{taskId}")
+    public ResponseEntity<ApiResponse<?>> predictTaskRisk(
+            @PathVariable String taskId,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/routing/task-risk/{}", taskId);
+        return ResponseEntity.ok(aiService.predictTaskRisk(taskId, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/routing/instance-risk/{processInstanceId}")
+    public ResponseEntity<ApiResponse<?>> predictInstanceRisk(
+            @PathVariable String processInstanceId,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/routing/instance-risk/{}", processInstanceId);
+        return ResponseEntity.ok(aiService.predictInstanceRisk(processInstanceId, authenticatedEmail(authentication)));
+    }
+
+    @PostMapping("/routing/recommend-assignment/{taskId}")
+    public ResponseEntity<ApiResponse<?>> recommendAssignment(
+            @PathVariable String taskId,
+            Authentication authentication) {
+        log.info("Solicitud POST /api/ai/routing/recommend-assignment/{}", taskId);
+        return ResponseEntity.ok(aiService.recommendAssignment(taskId, authenticatedEmail(authentication)));
+    }
+
+    @GetMapping("/routing/dashboard")
+    public ResponseEntity<ApiResponse<?>> intelligentRoutingDashboard(Authentication authentication) {
+        log.info("Solicitud GET /api/ai/routing/dashboard");
+        return ResponseEntity.ok(aiService.intelligentRoutingDashboard(authenticatedEmail(authentication)));
+    }
+
     @PostMapping("/analyze-process")
     public ResponseEntity<ApiResponse<?>> analyzeProcess(@Valid @RequestBody ProcessAnalysisRequestDto request) {
         log.info("Solicitud POST /api/ai/analyze-process");
@@ -98,5 +179,9 @@ public class AiController {
         log.info("Solicitud POST /api/ai/suggestions/{}/reject", id);
         String reviewedBy = authentication == null ? null : authentication.getName();
         return ResponseEntity.ok(aiService.rejectSuggestion(id, reviewedBy));
+    }
+
+    private String authenticatedEmail(Authentication authentication) {
+        return authentication == null ? null : authentication.getName();
     }
 }

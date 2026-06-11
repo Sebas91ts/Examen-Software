@@ -133,7 +133,7 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         normalizedVariables.putIfAbsent("startedByRole", "CLIENT");
 
         log.debug("Variables normalizadas para inicio cliente processId={}: {}", processId, normalizedVariables.keySet());
-        Map<String, Object> camundaResponse = camundaService.iniciarInstanciaConVariables(proceso.getProcessKey(), normalizedVariables);
+        Map<String, Object> camundaResponse = iniciarInstanciaClienteConRecuperacion(proceso, normalizedVariables);
         String processInstanceId = stringValue(camundaResponse.get("processInstanceId"));
         if (processInstanceId == null || processInstanceId.isBlank()) {
             processInstanceId = stringValue(camundaResponse.get("id"));
@@ -170,7 +170,7 @@ public class ClientProcessServiceImpl implements ClientProcessService {
             if (!firstTaskSnapshot.isEmpty()) {
                 log.debug("Primera tarea encontrada para cliente processInstanceId={} taskId={} taskKey={}",
                         processInstanceId, stringValue(firstTaskSnapshot.get("id")), stringValue(firstTaskSnapshot.get("taskDefinitionKey")));
-                camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables);
+                camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables, cliente.getEmail());
                 taskExecutionLogService.registrarEjecucion(firstTaskSnapshot, normalizedVariables, cliente.getEmail());
                 notificationService.notifyTaskCompleted(firstTaskSnapshot, cliente.getEmail());
                 realtimeEventService.publishTaskCompleted(firstTaskSnapshot, cliente.getEmail());
@@ -561,6 +561,34 @@ public class ClientProcessServiceImpl implements ClientProcessService {
         }
 
         return false;
+    }
+
+    private Map<String, Object> iniciarInstanciaClienteConRecuperacion(Proceso proceso, Map<String, Object> normalizedVariables) {
+        try {
+            return camundaService.iniciarInstanciaConVariables(proceso.getProcessKey(), normalizedVariables);
+        } catch (IllegalArgumentException ex) {
+            if (!debeReintentarDespliegue(ex)) {
+                throw ex;
+            }
+
+            log.warn("No se encontro la definicion en Camunda para processKey={}. Se intentara redeploy automatico del proceso publicado {} y un nuevo intento de inicio.",
+                    proceso.getProcessKey(), proceso.getId());
+
+            camundaService.desplegarProceso(proceso.getId());
+            return camundaService.iniciarInstanciaConVariables(proceso.getProcessKey(), normalizedVariables);
+        }
+    }
+
+    private boolean debeReintentarDespliegue(IllegalArgumentException ex) {
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+
+        String normalized = message.toLowerCase();
+        return normalized.contains("no matching process definition")
+                || normalized.contains("no se encontro la definicion")
+                || normalized.contains("no matching process definition with key");
     }
 
     private int calcularProgreso(List<String> completedTaskKeys, List<String> activeTaskKeys, List<String> pendingTaskKeys) {

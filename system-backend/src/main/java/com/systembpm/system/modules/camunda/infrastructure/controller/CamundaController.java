@@ -1,6 +1,12 @@
 package com.systembpm.system.modules.camunda.infrastructure.controller;
 
 import com.systembpm.system.common.response.ApiResponse;
+import com.systembpm.system.modules.audit.application.dto.AuditRecordRequest;
+import com.systembpm.system.modules.audit.application.service.AuditService;
+import com.systembpm.system.modules.audit.domain.AuditAction;
+import com.systembpm.system.modules.audit.domain.AuditEntityType;
+import com.systembpm.system.modules.document.application.dto.TaskDocumentRuntimeResponseDto;
+import com.systembpm.system.modules.document.application.service.DocumentTaskRuntimeService;
 import com.systembpm.system.modules.camunda.application.service.CamundaServiceImpl;
 import com.systembpm.system.modules.notification.application.service.NotificationServiceImpl;
 import com.systembpm.system.modules.realtime.application.service.IRealtimeEventService;
@@ -32,6 +38,8 @@ public class CamundaController {
     private final ITaskExecutionLogService taskExecutionLogService;
     private final NotificationServiceImpl notificationService;
     private final IRealtimeEventService realtimeEventService;
+    private final DocumentTaskRuntimeService documentTaskRuntimeService;
+    private final AuditService auditService;
 
     @PostMapping("/deploy/{procesoId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> deploy(@PathVariable String procesoId) {
@@ -123,6 +131,21 @@ public class CamundaController {
                 ApiResponse.success("Detalle de tarea obtenido exitosamente", camundaService.obtenerTarea(taskId)));
     }
 
+    @GetMapping("/tasks/{taskId}/documents")
+    public ResponseEntity<ApiResponse<TaskDocumentRuntimeResponseDto>> taskDocuments(@PathVariable String taskId) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401).body(ApiResponse.error("No hay una sesion autenticada"));
+        }
+
+        log.info("Solicitud GET /api/camunda/tasks/{}/documents para {}", taskId, authentication.getName());
+        Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Runtime documental de tarea obtenido",
+                documentTaskRuntimeService.getRuntime(taskSnapshot, authentication.getName())
+        ));
+    }
+
     @PostMapping("/tasks/{taskId}/complete")
     public ResponseEntity<ApiResponse<Map<String, Object>>> complete(
             @PathVariable String taskId,
@@ -148,12 +171,14 @@ public class CamundaController {
         }
 
         Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
-        Map<String, Object> response = camundaService.completarTarea(taskId, variables);
+        Map<String, Object> response = camundaService.completarTarea(taskId, variables, authentication.getName());
         try {
             taskExecutionLogService.registrarEjecucion(taskSnapshot, variables, authentication.getName());
         } catch (Exception ex) {
             log.warn("No se pudo registrar el historial de ejecucion para la tarea {}. Se continua con notificaciones.", taskId, ex);
         }
+        recordTaskCompleted(taskSnapshot, variables, authentication.getName());
+        recordFormSubmitted(taskSnapshot, variables, authentication.getName());
         notificationService.notifyTaskCompleted(taskSnapshot, authentication.getName());
         realtimeEventService.publishTaskCompleted(taskSnapshot, authentication.getName());
 
@@ -171,10 +196,79 @@ public class CamundaController {
         log.info("Solicitud POST /api/camunda/tasks/{}/claim por usuario {}", taskId, authentication.getName());
         Map<String, Object> taskSnapshot = camundaService.obtenerTarea(taskId);
         Map<String, Object> response = camundaService.tomarTarea(taskId, authentication.getName());
+        recordTaskClaimed(taskSnapshot, authentication.getName());
         notificationService.notifyTaskClaimed(taskSnapshot, authentication.getName());
         realtimeEventService.publishTaskClaimed(taskSnapshot, authentication.getName());
         return ResponseEntity.ok(
                 ApiResponse.success("Tarea tomada exitosamente", response));
+    }
+
+    private void recordTaskCompleted(Map<String, Object> taskSnapshot, Map<String, Object> variables, String actorEmail) {
+        auditService.record(AuditRecordRequest.builder()
+                .action(AuditAction.TASK_COMPLETED)
+                .entityType(AuditEntityType.TASK)
+                .entityId(stringValue(taskSnapshot.get("id")))
+                .entityName(resolveTaskName(taskSnapshot))
+                .actorEmail(actorEmail)
+                .tenantId(stringValue(taskSnapshot.get("areaId")))
+                .areaId(stringValue(taskSnapshot.get("areaId")))
+                .areaName(stringValue(taskSnapshot.get("areaNombre")))
+                .processKey(resolveProcessKey(taskSnapshot))
+                .processVersion(resolveProcessVersion(taskSnapshot))
+                .processInstanceId(stringValue(taskSnapshot.get("processInstanceId")))
+                .taskDefinitionKey(stringValue(taskSnapshot.get("taskDefinitionKey")))
+                .taskInstanceId(stringValue(taskSnapshot.get("id")))
+                .taskName(resolveTaskName(taskSnapshot))
+                .afterSnapshot(Map.of(
+                        "completed", true,
+                        "variables", variables == null ? Map.of() : variables
+                ))
+                .metadata(Map.of("variablesCount", variables == null ? 0 : variables.size()))
+                .build());
+    }
+
+    private void recordFormSubmitted(Map<String, Object> taskSnapshot, Map<String, Object> variables, String actorEmail) {
+        if (variables == null || variables.isEmpty()) {
+            return;
+        }
+        auditService.record(AuditRecordRequest.builder()
+                .action(AuditAction.FORM_SUBMITTED)
+                .entityType(AuditEntityType.FORM)
+                .entityId(stringValue(taskSnapshot.get("id")))
+                .entityName(resolveTaskName(taskSnapshot))
+                .actorEmail(actorEmail)
+                .tenantId(stringValue(taskSnapshot.get("areaId")))
+                .areaId(stringValue(taskSnapshot.get("areaId")))
+                .areaName(stringValue(taskSnapshot.get("areaNombre")))
+                .processKey(resolveProcessKey(taskSnapshot))
+                .processVersion(resolveProcessVersion(taskSnapshot))
+                .processInstanceId(stringValue(taskSnapshot.get("processInstanceId")))
+                .taskDefinitionKey(stringValue(taskSnapshot.get("taskDefinitionKey")))
+                .taskInstanceId(stringValue(taskSnapshot.get("id")))
+                .taskName(resolveTaskName(taskSnapshot))
+                .afterSnapshot(Map.of("formData", variables))
+                .metadata(Map.of("fields", variables.keySet()))
+                .build());
+    }
+
+    private void recordTaskClaimed(Map<String, Object> taskSnapshot, String actorEmail) {
+        auditService.record(AuditRecordRequest.builder()
+                .action(AuditAction.TASK_CLAIMED)
+                .entityType(AuditEntityType.TASK)
+                .entityId(stringValue(taskSnapshot.get("id")))
+                .entityName(resolveTaskName(taskSnapshot))
+                .actorEmail(actorEmail)
+                .tenantId(stringValue(taskSnapshot.get("areaId")))
+                .areaId(stringValue(taskSnapshot.get("areaId")))
+                .areaName(stringValue(taskSnapshot.get("areaNombre")))
+                .processKey(resolveProcessKey(taskSnapshot))
+                .processVersion(resolveProcessVersion(taskSnapshot))
+                .processInstanceId(stringValue(taskSnapshot.get("processInstanceId")))
+                .taskDefinitionKey(stringValue(taskSnapshot.get("taskDefinitionKey")))
+                .taskInstanceId(stringValue(taskSnapshot.get("id")))
+                .taskName(resolveTaskName(taskSnapshot))
+                .afterSnapshot(Map.of("assignee", actorEmail))
+                .build());
     }
 
     private void publicarEventosTareasIniciales(Map<String, Object> startResponse) {
@@ -228,6 +322,39 @@ public class CamundaController {
 
         name = stringValue(tarea.get("taskDefinitionKey"));
         return name != null && !name.isBlank() ? name.trim() : "Tarea sin nombre";
+    }
+
+    private String resolveProcessKey(Map<String, Object> taskSnapshot) {
+        String processKey = stringValue(taskSnapshot.get("processKey"));
+        if (processKey != null && !processKey.isBlank()) {
+            return processKey.trim();
+        }
+        String processDefinitionId = stringValue(taskSnapshot.get("processDefinitionId"));
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            return null;
+        }
+        int separatorIndex = processDefinitionId.indexOf(':');
+        return separatorIndex <= 0 ? processDefinitionId.trim() : processDefinitionId.substring(0, separatorIndex).trim();
+    }
+
+    private Integer resolveProcessVersion(Map<String, Object> taskSnapshot) {
+        Object rawVersion = taskSnapshot.get("processVersion");
+        if (rawVersion instanceof Number number) {
+            return number.intValue();
+        }
+        String processDefinitionId = stringValue(taskSnapshot.get("processDefinitionId"));
+        if (processDefinitionId == null || processDefinitionId.isBlank()) {
+            return null;
+        }
+        String[] parts = processDefinitionId.split(":");
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(parts[1].trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private String stringValue(Object value) {

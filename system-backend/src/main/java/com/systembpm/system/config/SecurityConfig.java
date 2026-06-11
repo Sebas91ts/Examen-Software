@@ -35,6 +35,7 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/onlyoffice/**").permitAll()
                 .requestMatchers(
                         "/camunda",
                         "/camunda/**",
@@ -64,9 +65,16 @@ public class SecurityConfig {
                 .requestMatchers("/api/process-instances/**").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/tarea-instancias/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/files/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/documents/**").hasAnyRole("USER", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/notifications/**").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/assistant").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/fill-form").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/assist").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/recommend-process").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/reports").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/document-analysis").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/context").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
+                .requestMatchers("/api/ai/voice").hasAnyRole("USER", "CLIENT", "ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/analyze-process").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/analyses/**").hasAnyRole("ADMIN", "BPM_MANAGER")
                 .requestMatchers("/api/ai/suggestions/**").hasAnyRole("ADMIN", "BPM_MANAGER")

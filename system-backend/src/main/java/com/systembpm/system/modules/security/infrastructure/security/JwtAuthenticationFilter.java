@@ -40,6 +40,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         return path.equals("/api/auth/login")
                 || path.equals("/api/auth/register")
                 || path.equals("/api/auth/logout")
+                || path.startsWith("/api/onlyoffice/")
                 || path.startsWith("/camunda")
                 || path.startsWith("/engine-rest")
                 || path.startsWith("/app")

@@ -133,7 +133,7 @@ public class ClientTaskServiceImpl implements ClientTaskService {
         }
 
         log.info("Completando tarea cliente {} para instancia {}", taskId, stringValue(task.get("processInstanceId")));
-        camundaService.completarTarea(taskId, variables);
+        camundaService.completarTarea(taskId, variables, cliente.getEmail());
         taskExecutionLogService.registrarEjecucion(task, variables, cliente.getEmail());
         notificationService.notifyTaskCompleted(task, cliente.getEmail());
         realtimeEventService.publishTaskCompleted(task, cliente.getEmail());

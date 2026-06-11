@@ -7,7 +7,7 @@ spring:
     name: system-backend
 
   config:
-    import: optional:file:.env,optional:file:system-backend/.env
+    import: optional:file:./.env[.properties],optional:file:./system-backend/.env[.properties]
 
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
@@ -50,6 +50,13 @@ jwt:
 
 camunda:
   base-url: ${CAMUNDA_BASE_URL:http://localhost:8081/engine-rest}
+  history-time-to-live-days: ${CAMUNDA_HISTORY_TIME_TO_LIVE_DAYS:180}
+
+onlyoffice:
+  enabled: ${ONLYOFFICE_ENABLED:false}
+  document-server-url: ${ONLYOFFICE_DOCUMENT_SERVER_URL:http://localhost:8082}
+  jwt-secret: ${ONLYOFFICE_JWT_SECRET:}
+  callback-url: ${ONLYOFFICE_CALLBACK_URL:http://localhost:8080/api/onlyoffice/callback}
 
 fastapi:
   base-url: ${FASTAPI_BASE_URL:http://localhost:8000}
@@ -60,6 +67,24 @@ app:
       enabled: ${FIREBASE_ENABLED:false}
       service-account-base64: ${FIREBASE_SERVICE_ACCOUNT_BASE64:}
       project-id: ${FIREBASE_PROJECT_ID:}
+  document:
+    max-file-size-bytes: ${DOCUMENT_MAX_FILE_SIZE_BYTES:10485760}
+    allowed-content-types:
+      - application/pdf
+      - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+      - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      - text/csv
+      - image/*
+      - video/*
+    storage:
+      s3:
+        bucket: ${AWS_S3_BUCKET:}
+        region: ${AWS_REGION:us-east-1}
+        path-style-access-enabled: ${AWS_S3_PATH_STYLE:false}
+        access-key: ${AWS_ACCESS_KEY_ID:}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:}
+    signed-url:
+      expiration-minutes: ${AWS_S3_SIGNED_URL_EXPIRATION_MINUTES:15}
 
 ai:
   analysis:
@@ -89,7 +114,7 @@ spring:
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017}
-      database: ${MONGODB_DATABASE:systembpm}
+      database: ${MONGODB_DATABASE:test}
 
 logging:
   level:
