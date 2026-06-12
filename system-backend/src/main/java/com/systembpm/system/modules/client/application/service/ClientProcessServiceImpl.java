@@ -46,6 +46,8 @@ public class ClientProcessServiceImpl implements ClientProcessService {
 
     private static final String ESTADO_PUBLICADO = "PUBLICADO";
     private static final String ESTADO_ACTIVA = "ACTIVA";
+    private static final int FIRST_TASK_LOOKUP_ATTEMPTS = 8;
+    private static final long FIRST_TASK_LOOKUP_DELAY_MS = 250;
     private static final Set<String> CLIENT_HISTORY_EXCLUDED_KEYS = Set.of(
             "clientUserId",
             "clientEmail",
@@ -164,20 +166,7 @@ public class ClientProcessServiceImpl implements ClientProcessService {
                 processInstanceId,
                 null);
 
-        try {
-            log.debug("Buscando primera tarea de instancia cliente processInstanceId={}", processInstanceId);
-            Map<String, Object> firstTaskSnapshot = encontrarPrimeraTareaDeInstancia(processInstanceId);
-            if (!firstTaskSnapshot.isEmpty()) {
-                log.debug("Primera tarea encontrada para cliente processInstanceId={} taskId={} taskKey={}",
-                        processInstanceId, stringValue(firstTaskSnapshot.get("id")), stringValue(firstTaskSnapshot.get("taskDefinitionKey")));
-                camundaService.completarTarea(stringValue(firstTaskSnapshot.get("id")), normalizedVariables, cliente.getEmail());
-                taskExecutionLogService.registrarEjecucion(firstTaskSnapshot, normalizedVariables, cliente.getEmail());
-                notificationService.notifyTaskCompleted(firstTaskSnapshot, cliente.getEmail());
-                realtimeEventService.publishTaskCompleted(firstTaskSnapshot, cliente.getEmail());
-            }
-        } catch (Exception ex) {
-            log.warn("No se pudo completar la primera tarea o publicar eventos para el tramite cliente {}", processInstanceId, ex);
-        }
+        completarPrimeraTareaCliente(processInstanceId, normalizedVariables, cliente);
 
         try {
             log.debug("Publicando tareas activas iniciales del tramite cliente processInstanceId={}", processInstanceId);
@@ -419,6 +408,55 @@ public class ClientProcessServiceImpl implements ClientProcessService {
             notificationService.notifyTaskAvailableForArea(areaId, areaNombre, processInstanceId, taskId, taskName);
             realtimeEventService.publishTaskCreated(tarea);
         }
+    }
+
+    private void completarPrimeraTareaCliente(String processInstanceId, Map<String, Object> variables, Usuario cliente) {
+        log.debug("Buscando primera tarea de instancia cliente processInstanceId={}", processInstanceId);
+        Map<String, Object> firstTaskSnapshot = encontrarPrimeraTareaDeInstanciaConReintentos(processInstanceId);
+        if (firstTaskSnapshot.isEmpty()) {
+            throw new IllegalStateException("La instancia fue creada, pero Camunda no expuso la primera tarea a tiempo");
+        }
+
+        String taskId = stringValue(firstTaskSnapshot.get("id"));
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalStateException("Camunda devolvio una primera tarea sin identificador");
+        }
+
+        log.info("Completando primera tarea cliente processInstanceId={} taskId={} taskKey={} user={}",
+                processInstanceId, taskId, stringValue(firstTaskSnapshot.get("taskDefinitionKey")), cliente.getEmail());
+
+        camundaService.completarTarea(taskId, variables, cliente.getEmail());
+        taskExecutionLogService.registrarEjecucion(firstTaskSnapshot, variables, cliente.getEmail());
+        notificationService.notifyTaskCompleted(firstTaskSnapshot, cliente.getEmail());
+        realtimeEventService.publishTaskCompleted(firstTaskSnapshot, cliente.getEmail());
+    }
+
+    private Map<String, Object> encontrarPrimeraTareaDeInstanciaConReintentos(String processInstanceId) {
+        for (int attempt = 1; attempt <= FIRST_TASK_LOOKUP_ATTEMPTS; attempt++) {
+            Map<String, Object> task = encontrarPrimeraTareaDeInstancia(processInstanceId);
+            if (!task.isEmpty()) {
+                if (attempt > 1) {
+                    log.info("Primera tarea cliente encontrada tras reintentos processInstanceId={} attempts={}",
+                            processInstanceId, attempt);
+                }
+                return task;
+            }
+
+            esperarPrimeraTarea(processInstanceId, attempt);
+        }
+
+        return Map.of();
+    }
+
+    private void esperarPrimeraTarea(String processInstanceId, int attempt) {
+        try {
+            Thread.sleep(FIRST_TASK_LOOKUP_DELAY_MS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Se interrumpio la espera de la primera tarea cliente", ex);
+        }
+        log.debug("Primera tarea cliente aun no disponible processInstanceId={} attempt={}/{}",
+                processInstanceId, attempt, FIRST_TASK_LOOKUP_ATTEMPTS);
     }
 
     private Map<String, Object> encontrarPrimeraTareaDeInstancia(String processInstanceId) {

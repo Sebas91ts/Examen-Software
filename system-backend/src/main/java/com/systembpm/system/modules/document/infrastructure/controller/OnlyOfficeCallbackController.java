@@ -42,6 +42,36 @@ public class OnlyOfficeCallbackController {
             @PathVariable("id") String id,
             @RequestParam("token") String token
     ) {
+        return buildDocumentContentResponse(id, token);
+    }
+
+    @GetMapping("/documents/{id}/content/{fileName}")
+    public ResponseEntity<ByteArrayResource> documentContentWithFileName(
+            @PathVariable("id") String id,
+            @PathVariable("fileName") String fileName,
+            @RequestParam("token") String token
+    ) {
+        return buildDocumentContentResponse(id, token);
+    }
+
+    @RequestMapping(value = "/documents/{id}/content", method = RequestMethod.HEAD)
+    public ResponseEntity<Void> documentContentHead(
+            @PathVariable("id") String id,
+            @RequestParam("token") String token
+    ) {
+        return buildDocumentContentHeadResponse(id, token);
+    }
+
+    @RequestMapping(value = "/documents/{id}/content/{fileName}", method = RequestMethod.HEAD)
+    public ResponseEntity<Void> documentContentHeadWithFileName(
+            @PathVariable("id") String id,
+            @PathVariable("fileName") String fileName,
+            @RequestParam("token") String token
+    ) {
+        return buildDocumentContentHeadResponse(id, token);
+    }
+
+    private ResponseEntity<ByteArrayResource> buildDocumentContentResponse(String id, String token) {
         DocumentMetadata document = onlyOfficeIntegrationService.validateContentToken(id, token);
         byte[] content = onlyOfficeIntegrationService.downloadContent(id, token);
         return ResponseEntity.ok()
@@ -52,15 +82,12 @@ public class OnlyOfficeCallbackController {
                 .body(new ByteArrayResource(content));
     }
 
-    @RequestMapping(value = "/documents/{id}/content", method = RequestMethod.HEAD)
-    public ResponseEntity<Void> documentContentHead(
-            @PathVariable("id") String id,
-            @RequestParam("token") String token
-    ) {
+    private ResponseEntity<Void> buildDocumentContentHeadResponse(String id, String token) {
         DocumentMetadata document = onlyOfficeIntegrationService.validateContentToken(id, token);
+        byte[] content = onlyOfficeIntegrationService.downloadContent(id, token);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(document.getMimeType()))
-                .contentLength(document.getSize() == null ? 0 : document.getSize())
+                .contentLength(content.length)
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + sanitizeFilename(document.getOriginalName()) + "\"")
                 .build();

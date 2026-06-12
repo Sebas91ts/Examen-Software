@@ -380,8 +380,11 @@ public class DocumentTaskRuntimeServiceImpl implements DocumentTaskRuntimeServic
 
     private TaskContext resolveContext(Map<String, Object> taskSnapshot) {
         String processDefinitionId = stringValue(taskSnapshot.get("processDefinitionId"));
-        String processKey = extractProcessKey(processDefinitionId);
-        Integer processVersion = extractProcessVersion(processDefinitionId);
+        String processKey = firstText(stringValue(taskSnapshot.get("processKey")), extractProcessKey(processDefinitionId));
+        Integer processVersion = intValue(taskSnapshot.get("processVersion"));
+        if (processVersion == null) {
+            processVersion = extractProcessVersion(processDefinitionId);
+        }
         return new TaskContext(
                 processKey,
                 processVersion,
@@ -507,6 +510,33 @@ public class DocumentTaskRuntimeServiceImpl implements DocumentTaskRuntimeServic
 
     private String normalize(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            String normalized = normalize(value);
+            if (normalized != null && !normalized.isBlank()) {
+                return normalized;
+            }
+        }
+        return "";
+    }
+
+    private Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            try {
+                return Integer.valueOf(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private String normalizeComparable(String value) {

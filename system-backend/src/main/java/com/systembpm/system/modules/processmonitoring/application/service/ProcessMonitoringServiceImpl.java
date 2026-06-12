@@ -43,10 +43,8 @@ public class ProcessMonitoringServiceImpl implements IProcessMonitoringService {
                     .orElseThrow(() -> new IllegalArgumentException("El proceso solicitado no existe"));
 
             String processKey = proceso.getProcessKey();
-            Integer processVersion = proceso.getVersion();
-
             List<Map<String, Object>> activeTasks = camundaService.listarTareasTodas().stream()
-                    .filter(task -> matchesProcess(task, processKey, processVersion))
+                    .filter(task -> matchesProcess(task, processKey))
                     .filter(task -> hasText(stringValue(task.get("processInstanceId"))))
                     .toList();
 
@@ -125,16 +123,19 @@ public class ProcessMonitoringServiceImpl implements IProcessMonitoringService {
                 .build();
     }
 
-    private boolean matchesProcess(Map<String, Object> task, String processKey, Integer processVersion) {
+    private boolean matchesProcess(Map<String, Object> task, String processKey) {
+        String enrichedProcessKey = stringValue(task.get("processKey"));
+        if (hasText(enrichedProcessKey)) {
+            return Objects.equals(enrichedProcessKey.trim(), processKey);
+        }
+
         String taskProcessDefinitionId = stringValue(task.get("processDefinitionId"));
         if (taskProcessDefinitionId == null || taskProcessDefinitionId.isBlank()) {
             return false;
         }
 
         String taskProcessKey = extractProcessKey(taskProcessDefinitionId);
-        Integer taskVersion = extractProcessVersion(taskProcessDefinitionId);
-        return Objects.equals(taskProcessKey, processKey)
-                && Objects.equals(taskVersion, processVersion);
+        return Objects.equals(taskProcessKey, processKey);
     }
 
     private LocalDateTime resolveStartedAt(

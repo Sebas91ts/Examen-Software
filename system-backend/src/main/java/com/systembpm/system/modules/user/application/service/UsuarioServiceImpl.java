@@ -43,8 +43,8 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
         Usuario usuario = usuarioMapper.toEntity(dto);
         usuario.setPassword(passwordEncoder.encode(usuario.getPassword()));
-        asignarAreaSiCorresponde(usuario, dto.getAreaId());
         usuario.setRoles(List.of("ROLE_CLIENT"));
+        asignarAreaSiCorresponde(usuario, areaClientePorDefecto(dto.getAreaId()));
 
         Usuario usuarioGuardado = usuarioRepository.save(usuario);
         log.info("Usuario registrado exitosamente con ID: {}", usuarioGuardado.getId());
@@ -152,6 +152,7 @@ public class UsuarioServiceImpl implements IUsuarioService {
         if (areaId == null || areaId.isBlank()) {
             usuario.setAreaId(null);
             usuario.setAreaNombre(null);
+            usuario.setTenantId(null);
             return;
         }
 
@@ -161,6 +162,18 @@ public class UsuarioServiceImpl implements IUsuarioService {
 
         usuario.setAreaId(area.getId());
         usuario.setAreaNombre(area.getNombre());
+        usuario.setTenantId(area.getId());
+    }
+
+    private String areaClientePorDefecto(String requestedAreaId) {
+        if (requestedAreaId != null && !requestedAreaId.isBlank()) {
+            return requestedAreaId.trim();
+        }
+
+        return areaRepository.findByNombreIgnoreCase("Cliente")
+                .filter(area -> !Boolean.FALSE.equals(area.getActiva()))
+                .map(Area::getId)
+                .orElse(null);
     }
 
     private void aplicarRolesPermitidos(Usuario usuario, List<String> requestedRoles, boolean allowRoleChanges) {

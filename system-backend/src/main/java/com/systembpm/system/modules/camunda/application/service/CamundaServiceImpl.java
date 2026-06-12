@@ -376,7 +376,14 @@ public class CamundaServiceImpl implements CamundaService {
         String processDefinitionId = stringValue(tarea.get("processDefinitionId"));
         String taskDefinitionKey = stringValue(tarea.get("taskDefinitionKey"));
 
-        String processKey = extraerProcessKey(processDefinitionId);
+        ProcessDefinitionInfo processDefinitionInfo = resolverProcessDefinitionInfo(processDefinitionId);
+        String processKey = hasText(processDefinitionInfo.processKey())
+                ? processDefinitionInfo.processKey()
+                : extraerProcessKey(processDefinitionId);
+        enriquecida.put("processKey", processKey);
+        enriquecida.put("processVersion", processDefinitionInfo.processVersion() != null
+                ? processDefinitionInfo.processVersion()
+                : extraerProcessVersion(processDefinitionId));
         enriquecida.put("nombreProceso", resolverNombreProceso(processKey));
 
         Area area = resolverAreaDesdeBpmn(processKey, taskDefinitionKey);
@@ -402,10 +409,15 @@ public class CamundaServiceImpl implements CamundaService {
             processDefinitionId = stringValue(instancia.get("processDefinitionId"));
         }
 
-        String processKey = extraerProcessKey(processDefinitionId);
+        ProcessDefinitionInfo processDefinitionInfo = resolverProcessDefinitionInfo(processDefinitionId);
+        String processKey = hasText(processDefinitionInfo.processKey())
+                ? processDefinitionInfo.processKey()
+                : extraerProcessKey(processDefinitionId);
         enriquecida.put("processDefinitionId", processDefinitionId);
         enriquecida.put("processKey", processKey);
-        enriquecida.put("processVersion", extraerProcessVersion(processDefinitionId));
+        enriquecida.put("processVersion", processDefinitionInfo.processVersion() != null
+                ? processDefinitionInfo.processVersion()
+                : extraerProcessVersion(processDefinitionId));
         enriquecida.put("nombreProceso", resolverNombreProceso(processKey));
         enriquecida.put("estado", "ACTIVA");
         return enriquecida;
@@ -586,6 +598,57 @@ public class CamundaServiceImpl implements CamundaService {
             return Integer.valueOf(parts[1].trim());
         } catch (NumberFormatException ex) {
             return null;
+        }
+    }
+
+    private ProcessDefinitionInfo resolverProcessDefinitionInfo(String processDefinitionId) {
+        if (!hasText(processDefinitionId)) {
+            return ProcessDefinitionInfo.empty();
+        }
+
+        Integer versionFromId = extraerProcessVersion(processDefinitionId);
+        if (processDefinitionId.contains(":")) {
+            return new ProcessDefinitionInfo(extraerProcessKey(processDefinitionId), versionFromId);
+        }
+
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/process-definition/" + processDefinitionId.trim(),
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    new ParameterizedTypeReference<>() {
+                    });
+            Map<String, Object> definition = response.getBody() != null ? response.getBody() : Map.of();
+            return new ProcessDefinitionInfo(
+                    stringValue(definition.get("key")),
+                    intValue(definition.get("version")));
+        } catch (HttpStatusCodeException ex) {
+            log.warn("No se pudo resolver process-definition={} desde Camunda: {}",
+                    processDefinitionId, ex.getResponseBodyAsString());
+            return ProcessDefinitionInfo.empty();
+        } catch (Exception ex) {
+            log.warn("No se pudo resolver process-definition={} desde Camunda", processDefinitionId, ex);
+            return ProcessDefinitionInfo.empty();
+        }
+    }
+
+    private Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String stringValue && !stringValue.isBlank()) {
+            try {
+                return Integer.valueOf(stringValue.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private record ProcessDefinitionInfo(String processKey, Integer processVersion) {
+        private static ProcessDefinitionInfo empty() {
+            return new ProcessDefinitionInfo(null, null);
         }
     }
 
@@ -772,6 +835,10 @@ public class CamundaServiceImpl implements CamundaService {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private Map<String, Object> normalizeVariables(Map<String, Object> variables) {
