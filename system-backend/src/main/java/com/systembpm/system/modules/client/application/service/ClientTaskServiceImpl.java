@@ -98,8 +98,8 @@ public class ClientTaskServiceImpl implements ClientTaskService {
                 .taskId(stringValue(task.get("id")))
                 .taskName(resolveTaskName(task))
                 .processInstanceId(stringValue(task.get("processInstanceId")))
-                .processKey(extractProcessKey(stringValue(task.get("processDefinitionId"))))
-                .processVersion(extractProcessVersion(stringValue(task.get("processDefinitionId"))))
+                .processKey(resolveProcessKey(task))
+                .processVersion(resolveProcessVersion(task))
                 .processName(stringValue(task.get("nombreProceso")))
                 .areaName(stringValue(task.get("areaNombre")))
                 .assignee(stringValue(task.get("assignee")))
@@ -154,8 +154,8 @@ public class ClientTaskServiceImpl implements ClientTaskService {
                 .taskId(stringValue(task.get("id")))
                 .taskName(resolveTaskName(task))
                 .processInstanceId(stringValue(task.get("processInstanceId")))
-                .processKey(extractProcessKey(stringValue(task.get("processDefinitionId"))))
-                .processVersion(extractProcessVersion(stringValue(task.get("processDefinitionId"))))
+                .processKey(resolveProcessKey(task))
+                .processVersion(resolveProcessVersion(task))
                 .processName(stringValue(task.get("nombreProceso")))
                 .areaName(stringValue(task.get("areaNombre")))
                 .assignee(stringValue(task.get("assignee")))
@@ -165,8 +165,8 @@ public class ClientTaskServiceImpl implements ClientTaskService {
     }
 
     private FormDefinitionResponseDto resolveFormDefinition(Map<String, Object> task) {
-        String processKey = extractProcessKey(stringValue(task.get("processDefinitionId")));
-        Integer processVersion = extractProcessVersion(stringValue(task.get("processDefinitionId")));
+        String processKey = resolveProcessKey(task);
+        Integer processVersion = resolveProcessVersion(task);
         String taskDefinitionKey = stringValue(task.get("taskDefinitionKey"));
 
         if (!hasText(processKey) || processVersion == null || !hasText(taskDefinitionKey)) {
@@ -215,12 +215,12 @@ public class ClientTaskServiceImpl implements ClientTaskService {
 
         String processDefinitionId = stringValue(task.get("processDefinitionId"));
         String taskDefinitionKey = stringValue(task.get("taskDefinitionKey"));
-        if (!hasText(processDefinitionId) || !hasText(taskDefinitionKey)) {
+        if (!hasText(taskDefinitionKey)) {
             return false;
         }
 
-        String processKey = extractProcessKey(processDefinitionId);
-        Integer processVersion = extractProcessVersion(processDefinitionId);
+        String processKey = resolveProcessKey(task);
+        Integer processVersion = resolveProcessVersion(task);
         Proceso proceso = resolveProceso(processKey, processVersion);
         if (proceso == null || !hasText(proceso.getXml())) {
             return false;
@@ -388,6 +388,31 @@ public class ClientTaskServiceImpl implements ClientTaskService {
 
         name = stringValue(task.get("taskDefinitionKey"));
         return hasText(name) ? name.trim() : "Tarea sin nombre";
+    }
+
+    private String resolveProcessKey(Map<String, Object> task) {
+        String processKey = stringValue(task.get("processKey"));
+        if (hasText(processKey)) {
+            return processKey.trim();
+        }
+
+        return extractProcessKey(stringValue(task.get("processDefinitionId")));
+    }
+
+    private Integer resolveProcessVersion(Map<String, Object> task) {
+        Object rawVersion = task.get("processVersion");
+        if (rawVersion instanceof Number number) {
+            return number.intValue();
+        }
+        if (rawVersion instanceof String versionText && hasText(versionText)) {
+            try {
+                return Integer.valueOf(versionText.trim());
+            } catch (NumberFormatException ignored) {
+                // Fallback a processDefinitionId abajo.
+            }
+        }
+
+        return extractProcessVersion(stringValue(task.get("processDefinitionId")));
     }
 
     private String extractProcessKey(String processDefinitionId) {

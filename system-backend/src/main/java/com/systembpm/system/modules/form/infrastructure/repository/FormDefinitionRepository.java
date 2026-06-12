@@ -17,5 +17,9 @@ public interface FormDefinitionRepository extends MongoRepository<FormDefinition
             Integer processVersion,
             String taskDefinitionKey);
 
+    Optional<FormDefinition> findFirstByProcessKeyIgnoreCaseAndTaskDefinitionKeyIgnoreCaseOrderByProcessVersionDesc(
+            String processKey,
+            String taskDefinitionKey);
+
     List<FormDefinition> findByProcessKeyIgnoreCaseOrderByProcessVersionAsc(String processKey);
 }

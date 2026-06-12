@@ -11,11 +11,19 @@ import com.systembpm.system.modules.form.domain.FormFieldOptionDefinition;
 import com.systembpm.system.modules.form.infrastructure.repository.FormDefinitionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
@@ -24,6 +32,10 @@ import java.util.Optional;
 public class FormDefinitionServiceImpl implements IFormDefinitionService {
 
     private final FormDefinitionRepository formDefinitionRepository;
+    private final RestTemplate restTemplate;
+
+    @Value("${CAMUNDA_BASE_URL:${camunda.base-url:http://localhost:8081/engine-rest}}")
+    private String camundaBaseUrl;
 
     @Override
     public FormDefinitionResponseDto crear(FormDefinitionCreateDto dto) {
@@ -46,14 +58,42 @@ public class FormDefinitionServiceImpl implements IFormDefinitionService {
 
     @Override
     public Optional<FormDefinitionResponseDto> obtenerPorClave(String processKey, Integer version, String taskDefinitionKey) {
-        if (processKey == null || processKey.isBlank() || version == null || taskDefinitionKey == null || taskDefinitionKey.isBlank()) {
-            throw new IllegalArgumentException("processKey, version y taskDefinitionKey son obligatorios");
+        if (processKey == null || processKey.isBlank() || taskDefinitionKey == null || taskDefinitionKey.isBlank()) {
+            throw new IllegalArgumentException("processKey y taskDefinitionKey son obligatorios");
         }
 
-        return formDefinitionRepository
-                .findByProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
-                        normalizar(processKey), version, normalizar(taskDefinitionKey))
-                .map(this::toResponse);
+        String normalizedProcessKey = normalizar(processKey);
+        String normalizedTaskDefinitionKey = normalizar(taskDefinitionKey);
+
+        Optional<FormDefinition> form = buscarFormularioCompatible(
+                normalizedProcessKey,
+                version,
+                normalizedTaskDefinitionKey);
+
+        if (form.isPresent()) {
+            return form.map(this::toResponse);
+        }
+
+        ProcessDefinitionInfo resolvedDefinition = resolverProcessDefinitionDesdeCamunda(normalizedProcessKey);
+        if (!hasText(resolvedDefinition.processKey())) {
+            return Optional.empty();
+        }
+
+        Optional<FormDefinition> resolvedForm = buscarFormularioCompatible(
+                resolvedDefinition.processKey(),
+                resolvedDefinition.processVersion() != null ? resolvedDefinition.processVersion() : version,
+                normalizedTaskDefinitionKey);
+
+        resolvedForm.ifPresent(formDefinition -> log.warn(
+                "form.runtime.process-definition-resolved requestedProcessKey={} resolvedProcessKey={} requestedVersion={} resolvedVersion={} taskDefinitionKey={} formVersion={}",
+                normalizedProcessKey,
+                resolvedDefinition.processKey(),
+                version,
+                resolvedDefinition.processVersion(),
+                normalizedTaskDefinitionKey,
+                formDefinition.getProcessVersion()));
+
+        return resolvedForm.map(this::toResponse);
     }
 
     @Override
@@ -207,5 +247,85 @@ public class FormDefinitionServiceImpl implements IFormDefinitionService {
 
     private String normalizar(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private Optional<FormDefinition> buscarFormularioCompatible(String processKey, Integer version, String taskDefinitionKey) {
+        Optional<FormDefinition> exactMatch = version == null
+                ? Optional.empty()
+                : formDefinitionRepository.findByProcessKeyIgnoreCaseAndProcessVersionAndTaskDefinitionKeyIgnoreCase(
+                        processKey, version, taskDefinitionKey);
+
+        if (exactMatch.isPresent()) {
+            return exactMatch;
+        }
+
+        Optional<FormDefinition> latestCompatible = formDefinitionRepository
+                .findFirstByProcessKeyIgnoreCaseAndTaskDefinitionKeyIgnoreCaseOrderByProcessVersionDesc(
+                        processKey, taskDefinitionKey);
+
+        latestCompatible.ifPresent(form -> log.warn(
+                "form.runtime.fallback processKey={} requestedVersion={} taskDefinitionKey={} resolvedVersion={}",
+                processKey,
+                version,
+                taskDefinitionKey,
+                form.getProcessVersion()));
+
+        return latestCompatible;
+    }
+
+    private ProcessDefinitionInfo resolverProcessDefinitionDesdeCamunda(String processDefinitionId) {
+        if (!hasText(processDefinitionId) || processDefinitionId.contains(":")) {
+            return ProcessDefinitionInfo.empty();
+        }
+
+        try {
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    camundaBaseUrl + "/process-definition/" + processDefinitionId.trim(),
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    new ParameterizedTypeReference<>() {
+                    });
+            Map<String, Object> definition = response.getBody() != null ? response.getBody() : Map.of();
+            return new ProcessDefinitionInfo(
+                    stringValue(definition.get("key")),
+                    intValue(definition.get("version")));
+        } catch (HttpStatusCodeException ex) {
+            log.warn("form.runtime.process-definition-unresolved processDefinitionId={} status={} body={}",
+                    processDefinitionId,
+                    ex.getStatusCode(),
+                    ex.getResponseBodyAsString());
+            return ProcessDefinitionInfo.empty();
+        } catch (Exception ex) {
+            log.warn("form.runtime.process-definition-unresolved processDefinitionId={}", processDefinitionId, ex);
+            return ProcessDefinitionInfo.empty();
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Integer intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String stringValue && !stringValue.isBlank()) {
+            try {
+                return Integer.valueOf(stringValue.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private record ProcessDefinitionInfo(String processKey, Integer processVersion) {
+        private static ProcessDefinitionInfo empty() {
+            return new ProcessDefinitionInfo(null, null);
+        }
     }
 }

@@ -35,11 +35,13 @@ import org.springframework.web.client.RestTemplate;
 import javax.crypto.SecretKey;
 import java.io.ByteArrayInputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -209,8 +211,8 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         }
         if (status == STATUS_READY_TO_SAVE) {
             try {
-                overwriteCurrentS3Object(document, request);
-                return callbackOk("Documento sobrescrito en S3 correctamente");
+                createNewS3Version(document, request);
+                return callbackOk("Nueva version documental guardada en S3 correctamente");
             } catch (Exception ex) {
                 log.error("onlyoffice.callback.persist-error tenantId={} documentId={} documentKey={} status={} urlPresent={}",
                         document.getTenantId(), document.getId(), request.getKey(), status, hasText(request.getUrl()), ex);
@@ -295,10 +297,17 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         ));
         String callbackUrl = onlyOfficeProperties.callbackUrl();
         String baseUrl = callbackUrl.substring(0, callbackUrl.indexOf("/api/onlyoffice"));
-        return baseUrl + "/api/onlyoffice/documents/" + document.getId() + "/content?token=" + token;
+        String encodedFileName = URLEncoder.encode(
+                hasText(document.getOriginalName()) ? document.getOriginalName() : document.getId() + "." + resolveFileType(document.getOriginalName()),
+                StandardCharsets.UTF_8
+        ).replace("+", "%20");
+        String url = baseUrl + "/api/onlyoffice/documents/" + document.getId() + "/content/" + encodedFileName + "?token=" + token;
+        log.info("onlyoffice.content.backend-url tenantId={} documentId={} documentKey={}",
+                document.getTenantId(), document.getId(), documentKey);
+        return url;
     }
 
-    private void overwriteCurrentS3Object(DocumentMetadata current, OnlyOfficeCallbackRequestDto request) {
+    private void createNewS3Version(DocumentMetadata current, OnlyOfficeCallbackRequestDto request) {
         if (!hasText(request.getUrl())) {
             throw new DocumentValidationException("OnlyOffice no envio URL para descargar la version modificada");
         }
@@ -313,23 +322,120 @@ public class OnlyOfficeIntegrationServiceImpl implements OnlyOfficeIntegrationSe
         log.info("onlyoffice.save.download-success tenantId={} documentId={} bytes={}",
                 current.getTenantId(), current.getId(), content.length);
 
-        documentStoragePort.upload(current.getS3Key(), current.getMimeType(), content.length, new ByteArrayInputStream(content));
+        String newDocumentId = UUID.randomUUID().toString().replace("-", "");
+        int previousVersion = current.getVersion() == null ? 1 : current.getVersion();
+        int nextVersion = resolveNextVersion(current);
+        String extension = extractExtension(current.getOriginalName());
+        String fileName = buildStoredFileName(newDocumentId, nextVersion, extension);
+        String s3Key = current.getTenantId() + "/" + current.getProcessInstanceId() + "/" + newDocumentId + "/" + nextVersion + "/" + fileName;
+
+        documentStoragePort.upload(s3Key, current.getMimeType(), content.length, new ByteArrayInputStream(content));
         Instant now = Instant.now();
-        current.setSize((long) content.length);
-        current.setUpdatedAt(now);
-        current.setUpdatedBy(resolveCallbackEditor(current, request));
+        String updatedBy = resolveCallbackEditor(current, request);
+        DocumentMetadata next = cloneAsNewVersion(current, newDocumentId, fileName, s3Key, content.length, nextVersion, updatedBy, now);
+        DocumentMetadata saved = documentMetadataRepository.save(next);
+
         current.setCurrentEditor(null);
         current.setEditingStartedAt(null);
-        DocumentMetadata saved = documentMetadataRepository.save(current);
+        current.setUpdatedAt(now);
+        current.setUpdatedBy(updatedBy);
+        documentMetadataRepository.save(current);
 
-        log.info("onlyoffice.save.upload-success tenantId={} documentId={} s3Key={} bytes={} updatedBy={} versionUnchanged={}",
-                saved.getTenantId(), saved.getId(), saved.getS3Key(), saved.getSize(), saved.getUpdatedBy(), saved.getVersion());
+        log.info("onlyoffice.save.upload-success tenantId={} previousDocumentId={} newDocumentId={} s3Key={} bytes={} updatedBy={} previousVersion={} newVersion={}",
+                saved.getTenantId(), current.getId(), saved.getId(), saved.getS3Key(), saved.getSize(), saved.getUpdatedBy(), previousVersion, saved.getVersion());
         recordOnlyOfficeEvent(AuditAction.DOCUMENT_SAVED_FROM_ONLYOFFICE, saved, saved.getUpdatedBy(), Map.of(
                 "documentKey", nullSafe(saved.getOnlyOfficeDocumentKey()),
                 "s3Key", nullSafe(saved.getS3Key()),
                 "bytes", content.length,
-                "versionUnchanged", saved.getVersion() == null ? 1 : saved.getVersion()
+                "previousDocumentId", nullSafe(current.getId()),
+                "previousVersion", previousVersion,
+                "newVersion", saved.getVersion() == null ? nextVersion : saved.getVersion()
         ));
+    }
+
+    private DocumentMetadata cloneAsNewVersion(
+            DocumentMetadata current,
+            String newDocumentId,
+            String fileName,
+            String s3Key,
+            int contentLength,
+            int nextVersion,
+            String updatedBy,
+            Instant now
+    ) {
+        return DocumentMetadata.builder()
+                .id(newDocumentId)
+                .tenantId(current.getTenantId())
+                .ownerAreaId(current.getOwnerAreaId())
+                .allowedAreaIds(current.getAllowedAreaIds())
+                .accessRules(current.getAccessRules())
+                .processInstanceId(current.getProcessInstanceId())
+                .fileName(fileName)
+                .originalName(current.getOriginalName())
+                .mimeType(current.getMimeType())
+                .size((long) contentLength)
+                .s3Key(s3Key)
+                .uploadedBy(current.getUploadedBy())
+                .uploadedAt(current.getUploadedAt())
+                .version(nextVersion)
+                .status(current.getStatus())
+                .createdAt(current.getCreatedAt() == null ? now : current.getCreatedAt())
+                .updatedAt(now)
+                .lastAccessedAt(current.getLastAccessedAt())
+                .updatedBy(updatedBy)
+                .processKey(current.getProcessKey())
+                .processVersion(current.getProcessVersion())
+                .taskDefinitionKey(current.getTaskDefinitionKey())
+                .taskInstanceId(current.getTaskInstanceId())
+                .documentRequirementId(current.getDocumentRequirementId())
+                .documentRequirementName(current.getDocumentRequirementName())
+                .documentDirection(current.getDocumentDirection())
+                .documentLifecyclePolicy(current.getDocumentLifecyclePolicy())
+                .documentState(current.getDocumentState())
+                .locked(Boolean.FALSE)
+                .lockedBy(null)
+                .lockedAt(null)
+                .approvedBy(current.getApprovedBy())
+                .approvedAt(current.getApprovedAt())
+                .rejectedBy(current.getRejectedBy())
+                .rejectedAt(current.getRejectedAt())
+                .comments(current.getComments())
+                .folderId(current.getFolderId())
+                .tagIds(current.getTagIds())
+                .editable(current.getEditable())
+                .collaborativeEditing(current.getCollaborativeEditing())
+                .onlyOfficeDocumentKey(buildDocumentKey(current.getTenantId(), newDocumentId, nextVersion))
+                .templateDocumentId(current.getTemplateDocumentId())
+                .currentEditor(null)
+                .editingStartedAt(null)
+                .build();
+    }
+
+    private int resolveNextVersion(DocumentMetadata current) {
+        return documentMetadataRepository
+                .findTopByTenantIdAndProcessInstanceIdAndOriginalNameOrderByVersionDesc(
+                        current.getTenantId(),
+                        current.getProcessInstanceId(),
+                        current.getOriginalName()
+                )
+                .map(metadata -> metadata.getVersion() == null ? 2 : metadata.getVersion() + 1)
+                .orElse(1);
+    }
+
+    private String extractExtension(String originalName) {
+        if (!hasText(originalName)) {
+            return "";
+        }
+        int dotIndex = originalName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == originalName.length() - 1) {
+            return "";
+        }
+        return originalName.substring(dotIndex + 1);
+    }
+
+    private String buildStoredFileName(String documentId, int version, String extension) {
+        String baseName = documentId + "-v" + version;
+        return hasText(extension) ? baseName + "." + extension : baseName;
     }
 
     private void clearEditingSession(DocumentMetadata document, String updatedBy) {
